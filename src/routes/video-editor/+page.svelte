@@ -1,7 +1,12 @@
 <script lang="ts">
 	import { fade } from "svelte/transition";
 	import { Skeleton } from "$lib/components/ui/skeleton";
-	import FilesPanel from "$lib/components/sidebar/FilesPanel.svelte";
+	import { Checkbox } from "$lib/components/ui/checkbox";
+	import { Badge } from "$lib/components/ui/badge";
+	import { Button } from "$lib/components/ui/button";
+	import * as ToggleGroup from "$lib/components/ui/toggle-group";
+	import * as Resizable from "$lib/components/ui/resizable";
+
 	import SnipAIPanel from "$lib/components/sidebar/SnipAIPanel.svelte";
 	import AnalysisPanel from "$lib/components/sidebar/AnalysisPanel.svelte";
 	import CutSettingsPanel from "$lib/components/sidebar/CutSettingsPanel.svelte";
@@ -30,12 +35,9 @@
 	});
 </script>
 
-<div class="flex h-full">
-	<aside class="flex w-[368px] flex-shrink-0 flex-col overflow-hidden border-r border-snip-border bg-snip-surface">
-		<FilesPanel />
-
-		<div class="border-t border-snip-border"></div>
-
+<Resizable.PaneGroup direction="horizontal" class="h-full">
+	<Resizable.Pane defaultSize={25} minSize={15} maxSize={40}>
+	<aside class="flex h-full flex-col overflow-hidden border-r border-snip-border bg-snip-surface">
 		{#if editor.isBusy}
 			<div transition:fade={{ duration: 180 }} class="flex flex-col">
 				<SnipAIPanel />
@@ -53,52 +55,75 @@
 		<div class="border-b border-snip-border px-4 pb-3 pt-4">
 			<div class="mb-3 flex items-center justify-between gap-3">
 				<h2 class="text-[13px] font-semibold text-white">Detected cuts</h2>
-				<span class="rounded-full border border-snip-border bg-snip-surface-elevated px-2 py-[3px] text-[10px] text-snip-text-secondary">
-					{editor.selectedCutCount} selected · {editor.formatDuration(editor.selectedCutDurationMs)}
-				</span>
+				{#if editor.isBusy}
+					<Skeleton class="h-[18px] w-28 rounded-full bg-white/8" />
+				{:else}
+					<span class="rounded-full border border-snip-border bg-snip-surface-elevated px-2 py-[3px] text-[10px] text-snip-text-secondary">
+						{editor.selectedCutCount} selected · {editor.formatDuration(editor.selectedCutDurationMs)}
+					</span>
+				{/if}
 			</div>
 
-			<div class="flex flex-wrap gap-1.5">
-				{#each filters as filter (filter.id)}
-					<button
-						type="button"
-						onclick={() => (editor.activeFilter = filter.id)}
-						class={`flex items-center gap-1.5 rounded-[6px] border px-2 py-[5px] text-[11px] font-medium transition-colors ${
-							editor.activeFilter === filter.id
-								? "border-[#333333] bg-snip-surface-elevated text-white"
-								: "border-transparent text-snip-text-secondary hover:text-white"
-						}`}
-					>
-						{filter.label}
-						<span class="text-snip-text-muted">{editor.cutCounts[filter.id]}</span>
-					</button>
-				{/each}
-			</div>
+			{#if editor.isBusy}
+				<div class="flex flex-wrap gap-1.5">
+					{#each filters as filter (filter.id)}
+						<div class="flex items-center gap-1.5 rounded-[6px] px-2 py-[5px]">
+							<span class="text-[11px] font-medium text-snip-text-muted">{filter.label}</span>
+							<Skeleton class="h-3.5 w-4 rounded-full bg-white/6" />
+						</div>
+					{/each}
+				</div>
+			{:else}
+				<ToggleGroup.Root
+					type="single"
+					value={editor.activeFilter}
+					onValueChange={(value) => { if (value) editor.activeFilter = value as typeof editor.activeFilter; }}
+					class="flex flex-wrap gap-1.5"
+					spacing={4}
+				>
+					{#each filters as filter (filter.id)}
+						<ToggleGroup.Item
+							value={filter.id}
+							class="flex items-center gap-1.5 rounded-[6px] border border-transparent px-2 py-[5px] text-[11px] font-medium text-snip-text-secondary transition-colors hover:text-white data-[state=on]:border-[#333333] data-[state=on]:bg-snip-surface-elevated data-[state=on]:text-white"
+						>
+							{filter.label}
+							<Badge variant="secondary" class="h-auto rounded-full px-1.5 py-0 text-[10px] text-snip-text-muted">{editor.cutCounts[filter.id]}</Badge>
+						</ToggleGroup.Item>
+					{/each}
+				</ToggleGroup.Root>
+			{/if}
 		</div>
 
 		<div class="flex items-center justify-between border-b border-snip-border px-4 py-[7px]">
-			<div class="flex items-center">
-				<button
-					type="button"
-					onclick={() => editor.selectAllCuts()}
-					class="rounded px-2 py-1 text-[11px] text-snip-text-secondary transition-colors hover:text-white"
-				>
-					Select all
-				</button>
-				<span class="text-[11px] text-snip-text-muted">·</span>
-				<button
-					type="button"
-					onclick={() => editor.clearSelectedCuts()}
-					class="rounded px-2 py-1 text-[11px] text-snip-text-secondary transition-colors hover:text-white"
-				>
-					Deselect
-				</button>
-			</div>
-			<span class="text-[11px] text-snip-text-muted">{editor.selectedCutIds.length} selected</span>
+			{#if editor.isBusy}
+				<Skeleton class="h-3 w-28 rounded bg-white/6" />
+				<Skeleton class="h-3 w-16 rounded bg-white/6" />
+			{:else}
+				<div class="flex items-center">
+					<Button
+						variant="ghost"
+						size="sm"
+						onclick={() => editor.selectAllCuts()}
+						class="h-auto px-2 py-1 text-[11px] text-snip-text-secondary hover:bg-transparent hover:text-white"
+					>
+						Select all
+					</Button>
+					<span class="text-[11px] text-snip-text-muted">·</span>
+					<Button
+						variant="ghost"
+						size="sm"
+						onclick={() => editor.clearSelectedCuts()}
+						class="h-auto px-2 py-1 text-[11px] text-snip-text-secondary hover:bg-transparent hover:text-white"
+					>
+						Deselect
+					</Button>
+				</div>
+				<span class="text-[11px] text-snip-text-muted">{editor.selectedCutIds.length} selected</span>
+			{/if}
 		</div>
 
 		<div
-			class="flex-1 overflow-y-auto pb-[120px] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+			class="flex-1 overflow-y-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
 		>
 			{#if editor.filteredCutSegments.length > 0}
 				{#each editor.filteredCutSegments as segment (segment.id)}
@@ -108,25 +133,10 @@
 						onclick={() => editor.toggleCutSelection(segment.id)}
 					>
 						<div class="h-8 w-0.5 flex-shrink-0 rounded-full" style={`background:${segment.color}`}></div>
-						<div
-							class={`flex h-[14px] w-[14px] flex-shrink-0 items-center justify-center rounded-[3px] border transition-colors ${
-								editor.selectedCutIds.includes(segment.id)
-									? "border-primary bg-primary"
-									: "border-[#333333] bg-snip-surface group-hover:border-[#555555]"
-							}`}
-						>
-							{#if editor.selectedCutIds.includes(segment.id)}
-								<svg class="h-2.5 w-2.5 text-white" viewBox="0 0 10 10" fill="none">
-									<path
-										d="M1.5 5l2.5 2.5 4.5-5"
-										stroke="currentColor"
-										stroke-linecap="round"
-										stroke-linejoin="round"
-										stroke-width="1.5"
-									/>
-								</svg>
-							{/if}
-						</div>
+						<Checkbox
+							checked={editor.selectedCutIds.includes(segment.id)}
+							class="size-[14px] flex-shrink-0 rounded-[3px] border-[#333333] bg-snip-surface data-checked:border-primary data-checked:bg-primary group-hover:border-[#555555]"
+						/>
 						<div class="min-w-0 flex-1">
 							<div class="flex items-center justify-between gap-2">
 								<span class="truncate text-[12px] font-medium text-white">{segment.label}</span>
@@ -149,14 +159,22 @@
 					</button>
 				{/each}
 			{:else if editor.isBusy}
-				<div class="space-y-3 p-4">
+				<div>
 					{#each Array.from({ length: 6 }) as _, index (`cut-skeleton-${index}`)}
-						<div class="flex items-center gap-3 rounded-xl border border-snip-border bg-snip-surface-elevated p-3">
-							<Skeleton class="h-8 w-0.5 rounded-full bg-white/40" />
-							<Skeleton class="size-[14px] rounded-[3px] bg-white/12" />
-							<div class="flex-1 space-y-2">
-								<Skeleton class={`h-3 rounded bg-white/${index % 2 === 0 ? "12" : "20"}`} />
-								<Skeleton class="h-2 w-20 rounded bg-white/10" />
+						<div class="flex items-center gap-3 px-4 py-[10px]">
+							<Skeleton class="h-8 w-0.5 flex-shrink-0 rounded-full bg-white/15" />
+							<Skeleton class="size-[14px] flex-shrink-0 rounded-[3px] bg-white/8" />
+							<div class="min-w-0 flex-1 space-y-2">
+								<div class="flex items-center justify-between gap-2">
+									<Skeleton class={`h-3 rounded bg-white/${index % 2 === 0 ? "10" : "14"}`} style={`width:${50 + (index % 3) * 20}%`} />
+									<Skeleton class="h-2.5 w-8 flex-shrink-0 rounded bg-white/8" />
+								</div>
+								<Skeleton class="h-2 w-16 rounded bg-white/6" />
+							</div>
+							<div class="flex flex-shrink-0 items-center gap-px">
+								{#each Array.from({ length: 8 }) as _, barIdx (`skeleton-bar-${index}-${barIdx}`)}
+									<Skeleton class="w-px rounded-full bg-white/6" style={`height:${6 + (barIdx % 3) * 3}px`} />
+								{/each}
 							</div>
 						</div>
 					{/each}
@@ -169,9 +187,8 @@
 		</div>
 
 		<div class="border-t border-snip-border bg-snip-bg px-4 py-3">
-			<button
-				type="button"
-				class="w-full rounded-[8px] bg-primary py-2 text-[12px] font-semibold text-white transition-all disabled:pointer-events-none disabled:opacity-40"
+			<Button
+				class="w-full rounded-[8px] text-[12px] font-semibold"
 				disabled={!editor.videoUrl || editor.selectedCutIds.length === 0}
 				onclick={() => {
 					editor.setPreviewMode("after");
@@ -179,59 +196,16 @@
 				}}
 			>
 				Preview {editor.selectedCutIds.length} selected cut{editor.selectedCutIds.length === 1 ? "" : "s"}
-			</button>
+			</Button>
 		</div>
 	</aside>
+	</Resizable.Pane>
 
-	<main class="relative flex min-w-0 flex-1 flex-col overflow-hidden bg-snip-bg">
-		<VideoPreview />
+	<Resizable.Handle withHandle class="bg-snip-border" />
 
-		<div class="flex h-[84px] flex-shrink-0 flex-col justify-center gap-1.5 overflow-hidden border-t border-snip-border bg-snip-surface px-4 pb-[120px]">
-			<span class="text-[9px] font-semibold uppercase tracking-[0.25em] text-snip-text-muted">
-				Timeline
-			</span>
-
-			{#if editor.timelineBars.length > 0}
-				<div class="relative flex h-8 items-end gap-px">
-					{#each editor.timelineBars as height, index (`timeline-bar-${index}`)}
-						<div class="flex-1 rounded-sm bg-[#2a2a2a]" style={`height:${height}px;`}></div>
-					{/each}
-
-					{#each editor.cutSegments as segment (segment.id)}
-						<div
-							class="absolute inset-y-0 border-x"
-							style={`left:${(segment.start / editor.totalDurationMs) * 100}%;width:${Math.max(
-								((segment.end - segment.start) / editor.totalDurationMs) * 100,
-								0.3
-							)}%;background:${segment.color}22;border-color:${segment.color}90;`}
-						></div>
-					{/each}
-
-					{#if editor.totalDurationMs > 0}
-						<div
-							class="absolute inset-y-0 w-px bg-primary"
-							style={`left:${Math.min((editor.currentTimeMs / editor.totalDurationMs) * 100, 100)}%;`}
-						>
-							<div class="absolute -top-[3px] left-1/2 h-[7px] w-[7px] -translate-x-1/2 rotate-45 bg-primary"></div>
-						</div>
-					{/if}
-				</div>
-
-				<div class="flex justify-between px-0.5">
-					{#each editor.timelineLabels as item (item.id)}
-						<span class="font-mono text-[9px] text-snip-text-muted">{item.label}</span>
-					{/each}
-				</div>
-			{:else}
-				<div class="space-y-2">
-					<div class="flex h-8 items-end gap-px">
-						{#each Array.from({ length: 24 }) as _, index (`timeline-skeleton-${index}`)}
-							<Skeleton class={`flex-1 rounded-sm bg-white/${index % 2 === 0 ? "10" : "14"}`} style={`height:${10 + (index % 5) * 4}px;`} />
-						{/each}
-					</div>
-					<Skeleton class="h-2 w-full rounded bg-white/10" />
-				</div>
-			{/if}
-		</div>
-	</main>
-</div>
+	<Resizable.Pane defaultSize={75} minSize={40}>
+		<main class="relative flex h-full min-w-0 flex-col overflow-hidden bg-snip-bg">
+			<VideoPreview />
+		</main>
+	</Resizable.Pane>
+</Resizable.PaneGroup>

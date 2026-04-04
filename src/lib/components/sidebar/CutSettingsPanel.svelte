@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { Switch } from "$lib/components/ui/switch";
 	import { Slider } from "$lib/components/ui/slider";
+	import { Button } from "$lib/components/ui/button";
 	import { videoEditorState as editor } from "$lib/stores/video-editor.svelte";
 
 	const rows = [
@@ -110,17 +111,16 @@
 	<div class="border-t border-snip-border"></div>
 
 	<div class="px-4 py-4">
-		<button
-			type="button"
+		<Button
+			class="h-11 w-full rounded-lg text-[13px] font-medium"
 			onclick={() => {
 				editor.setPreviewMode("after");
 				void editor.previewAppliedCuts();
 			}}
 			disabled={!editor.videoUrl || editor.selectedCutIds.length === 0}
-			class="flex h-11 w-full items-center justify-center gap-2 rounded-lg bg-primary text-[13px] font-medium text-white transition-all disabled:pointer-events-none disabled:opacity-50"
 		>
 			preview applied cuts
-		</button>
+		</Button>
 	</div>
 </div>
 

@@ -34,7 +34,7 @@
 	const labelColor = { done: "#6b7280", active: "#f5f5f5", pending: "#3f3f46" };
 </script>
 
-<div class="mx-4 my-3 flex flex-col gap-3 rounded-lg border border-snip-border bg-snip-surface-elevated p-4">
+<div class="flex flex-col gap-3 px-4 py-3">
 	<span class="text-[10px] font-semibold uppercase tracking-[0.25em] text-snip-text-muted">Snip AI</span>
 
 	<div class="flex items-center gap-2">

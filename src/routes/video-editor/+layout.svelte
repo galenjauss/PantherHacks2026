@@ -3,6 +3,7 @@
 	import { videoEditorState as editor } from "$lib/stores/video-editor.svelte";
 	import { Button } from "$lib/components/ui/button";
 	import { Skeleton } from "$lib/components/ui/skeleton";
+
 	import ArrowLeftIcon from "@lucide/svelte/icons/arrow-left";
 	import FileVideoIcon from "@lucide/svelte/icons/file-video";
 	import ScissorsIcon from "@lucide/svelte/icons/scissors";
@@ -64,8 +65,8 @@
 		{@render children()}
 	</div>
 
-	<div class="fixed inset-x-0 bottom-0 z-40 h-[120px] border-t border-snip-border bg-snip-surface">
-		<div class="flex h-8 items-center justify-between border-b border-snip-border px-4">
+	<div class="flex h-[120px] flex-shrink-0 flex-col border-t border-snip-border bg-snip-surface">
+		<div class="flex h-8 flex-shrink-0 items-center justify-between border-b border-snip-border px-4">
 			<div class="flex items-center gap-3">
 				<span class="text-[10px] font-semibold uppercase tracking-[0.25em] text-snip-text-muted">
 					Clip strip
@@ -90,7 +91,7 @@
 			</div>
 		</div>
 
-		<div class="relative flex h-[88px] items-end gap-[2px] overflow-hidden px-4 pb-3 pt-4">
+		<div class="relative flex min-h-0 flex-1 items-end gap-[2px] overflow-hidden px-4 pb-3 pt-4">
 			{#if editor.clipStripSegments.length > 0}
 				{#each editor.clipStripSegments as segment (segment.id)}
 					<div

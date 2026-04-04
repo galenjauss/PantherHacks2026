@@ -154,7 +154,11 @@ class VideoEditorState {
 	}
 
 	get isBusy(): boolean {
-		return this.transcribing || this.pollingTranscript || this.analyzing || this.creatingAutocutJob;
+		return this.transcribing || this.pollingTranscript || this.analyzing;
+	}
+
+	get isSyncing(): boolean {
+		return this.creatingAutocutJob;
 	}
 
 	get hasErrors(): boolean {
@@ -169,7 +173,7 @@ class VideoEditorState {
 		if (!this.selectedFile) return "Awaiting upload";
 		if (this.transcribing || this.pollingTranscript) return "Transcribing";
 		if (this.analyzing) return "Analyzing";
-		if (this.creatingAutocutJob) return "Syncing";
+		if (this.isSyncing) return "Syncing";
 		if (this.isReady) return "Ready";
 		return "Queued";
 	}
@@ -182,7 +186,7 @@ class VideoEditorState {
 		if (this.analyzing) {
 			return "Classifying filler words, pauses, and retakes.";
 		}
-		if (this.creatingAutocutJob) {
+		if (this.isSyncing) {
 			return "Syncing the latest cut plan to the autocut job.";
 		}
 		if (this.isReady) {

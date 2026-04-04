@@ -44,7 +44,7 @@
 							: "bg-primary text-white"
 				}`}
 			>
-				{#if editor.isBusy}
+				{#if editor.isBusy || editor.isSyncing}
 					<LoaderCircleIcon class="size-3.5 animate-spin" />
 				{/if}
 				<span>{editor.statusLabel.toLowerCase()}</span>

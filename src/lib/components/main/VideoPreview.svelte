@@ -2,6 +2,7 @@
 	import { Badge } from "$lib/components/ui/badge";
 	import { Button } from "$lib/components/ui/button";
 	import { Skeleton } from "$lib/components/ui/skeleton";
+	import * as ToggleGroup from "$lib/components/ui/toggle-group";
 	import { videoEditorState as editor } from "$lib/stores/video-editor.svelte";
 	import PauseIcon from "@lucide/svelte/icons/pause";
 	import PlayIcon from "@lucide/svelte/icons/play";
@@ -20,9 +21,9 @@
 </script>
 
 <div class="flex min-h-0 flex-1 flex-col bg-snip-bg">
-	<div class="flex min-h-0 flex-1 items-center justify-center p-8">
-		<div class="relative w-full max-w-[860px]">
-			<div class="relative aspect-video overflow-hidden rounded-[20px] border border-snip-border bg-black/70 shadow-[0_40px_120px_rgba(0,0,0,0.35)]">
+	<div class="flex min-h-0 flex-1 items-center justify-center overflow-hidden p-8">
+		<div class="relative flex max-h-full w-full items-center justify-center">
+			<div class="relative w-full max-h-full aspect-video overflow-hidden rounded-[20px] border border-snip-border bg-black/70 shadow-[0_40px_120px_rgba(0,0,0,0.35)]">
 				{#if editor.videoUrl}
 					<video
 						bind:this={videoEl}
@@ -113,30 +114,26 @@
 
 				<span class="text-[13px] font-medium text-white">{editor.formatClock(editor.cleanDurationMs)} clean</span>
 
-				<div class="flex items-center gap-1 rounded-full border border-snip-border bg-snip-surface p-1">
-					<button
-						type="button"
-						onclick={() => editor.setPreviewMode("before")}
-						class={`rounded-full px-3 py-[5px] text-[11px] font-medium transition-colors ${
-							editor.previewMode === "before"
-								? "bg-snip-surface-elevated text-white"
-								: "text-snip-text-secondary hover:text-white"
-						}`}
+				<ToggleGroup.Root
+					type="single"
+					value={editor.previewMode}
+					onValueChange={(value) => { if (value) editor.setPreviewMode(value as "before" | "after"); }}
+					class="flex items-center gap-1 rounded-full border border-snip-border bg-snip-surface p-1"
+					spacing={4}
+				>
+					<ToggleGroup.Item
+						value="before"
+						class="rounded-full px-3 py-[5px] text-[11px] font-medium text-snip-text-secondary transition-colors hover:text-white data-[state=on]:bg-snip-surface-elevated data-[state=on]:text-white"
 					>
 						before
-					</button>
-					<button
-						type="button"
-						onclick={() => editor.setPreviewMode("after")}
-						class={`rounded-full px-3 py-[5px] text-[11px] font-medium transition-colors ${
-							editor.previewMode === "after"
-								? "bg-primary text-white"
-								: "text-snip-text-secondary hover:text-white"
-						}`}
+					</ToggleGroup.Item>
+					<ToggleGroup.Item
+						value="after"
+						class="rounded-full px-3 py-[5px] text-[11px] font-medium text-snip-text-secondary transition-colors hover:text-white data-[state=on]:bg-primary data-[state=on]:text-white"
 					>
 						after
-					</button>
-				</div>
+					</ToggleGroup.Item>
+				</ToggleGroup.Root>
 
 				<Button
 					variant="outline"
