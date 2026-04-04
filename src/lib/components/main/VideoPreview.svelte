@@ -1,5 +1,4 @@
 <script lang="ts">
-	import { Badge } from "$lib/components/ui/badge";
 	import { Button } from "$lib/components/ui/button";
 	import { Skeleton } from "$lib/components/ui/skeleton";
 	import * as ToggleGroup from "$lib/components/ui/toggle-group";
@@ -21,7 +20,7 @@
 </script>
 
 <div class="flex min-h-0 flex-1 flex-col bg-snip-bg">
-	<div class="flex min-h-0 flex-1 items-center justify-center overflow-hidden p-8">
+	<div class="flex min-h-0 flex-1 items-center justify-center overflow-hidden p-3">
 		<div class="relative flex h-full w-full items-center justify-center">
 			<div class="relative aspect-video max-h-full max-w-full overflow-hidden rounded-[20px] border border-snip-border bg-black/70 shadow-[0_40px_120px_rgba(0,0,0,0.35)]">
 				{#if editor.videoUrl}
@@ -37,14 +36,6 @@
 						<track kind="captions" />
 					</video>
 
-					<div class="pointer-events-none absolute inset-x-0 top-0 flex justify-center p-4">
-						<div class="flex items-center gap-2 rounded-full border border-white/10 bg-black/65 px-3 py-1.5 backdrop-blur">
-							<span class={`size-2 rounded-full ${editor.isReady ? "bg-emerald-400" : "bg-primary"}`}></span>
-							<span class="text-[11px] font-medium text-white">
-								{editor.previewMode === "after" ? "clean preview" : "source preview"}
-							</span>
-						</div>
-					</div>
 
 					{#if editor.isBusy}
 						<div class="pointer-events-none absolute inset-x-0 bottom-0 p-4">
@@ -67,7 +58,7 @@
 							<WandSparklesIcon class="size-8" />
 						</div>
 						<div class="space-y-2">
-							<h2 class="text-2xl font-semibold text-white">Upload a source clip</h2>
+							<h2 class="font-display text-2xl font-semibold text-white">Upload a source clip</h2>
 							<p class="max-w-md text-sm leading-6 text-snip-text-secondary">
 								Start from the home page or replace the file from the sidebar to populate the live preview.
 							</p>
@@ -105,33 +96,24 @@
 
 		{#if editor.videoUrl}
 			<div class="flex items-center gap-3">
-				<Badge
-					variant="outline"
-					class="border-snip-border bg-snip-surface text-snip-text-primary"
-				>
-					−{editor.formatDuration(editor.selectedCutDurationMs)}
-				</Badge>
-
-				<span class="text-[13px] font-medium text-white">{editor.formatClock(editor.cleanDurationMs)} clean</span>
-
 				<ToggleGroup.Root
 					type="single"
 					value={editor.previewMode}
 					onValueChange={(value) => { if (value) editor.setPreviewMode(value as "before" | "after"); }}
-					class="flex items-center gap-1 rounded-full border border-snip-border bg-snip-surface p-1"
+					class="flex items-center gap-1 rounded-full border border-snip-border bg-snip-surface p-1.5"
 					spacing={4}
 				>
 					<ToggleGroup.Item
 						value="before"
-						class="rounded-full px-3 py-[5px] text-[11px] font-medium text-snip-text-secondary transition-colors hover:text-white data-[state=on]:bg-snip-surface-elevated data-[state=on]:text-white"
+						class="font-display rounded-full px-5 py-2 text-sm font-semibold text-snip-text-secondary transition-all hover:text-white data-[state=on]:bg-snip-surface-elevated data-[state=on]:text-white data-[state=on]:shadow-sm"
 					>
-						before
+						Before
 					</ToggleGroup.Item>
 					<ToggleGroup.Item
 						value="after"
-						class="rounded-full px-3 py-[5px] text-[11px] font-medium text-snip-text-secondary transition-colors hover:text-white data-[state=on]:bg-primary data-[state=on]:text-white"
+						class="font-display rounded-full px-5 py-2 text-sm font-semibold text-snip-text-secondary transition-all hover:text-white data-[state=on]:bg-primary data-[state=on]:text-white data-[state=on]:shadow-[0_0_12px_rgba(124,58,237,0.4)]"
 					>
-						after
+						After
 					</ToggleGroup.Item>
 				</ToggleGroup.Root>
 
@@ -143,7 +125,7 @@
 					onclick={() => void editor.pollJob()}
 				>
 					<RefreshCcwIcon class="mr-1 size-4" />
-					Refresh job
+					<span class="font-display">Re-analyze</span>
 				</Button>
 			</div>
 		{:else}

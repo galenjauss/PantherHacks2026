@@ -116,12 +116,5 @@
 			{/each}
 		</div>
 
-		<!-- Summary footer -->
-		<div class="px-4 py-3 border-t border-snip-border flex-shrink-0">
-			<p class="text-[11px] text-snip-text-muted">
-				Clean runtime: <span class="text-snip-text-secondary font-mono">{editor.formatDuration(editor.cleanDurationMs)}</span>
-				&middot; {editor.selectedCutCount} cuts remove <span class="text-primary font-medium">{editor.formatDuration(editor.selectedCutDurationMs)}</span>
-			</p>
-		</div>
 	{/if}
 </div>

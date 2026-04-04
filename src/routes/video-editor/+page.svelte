@@ -18,9 +18,17 @@ import ScriptPanel from "$lib/components/sidebar/ScriptPanel.svelte";
 		editor.seekTo(startMs);
 	}
 
-	import ArrowLeftIcon from "@lucide/svelte/icons/arrow-left";
 	import FileVideoIcon from "@lucide/svelte/icons/file-video";
 	import ScissorsIcon from "@lucide/svelte/icons/scissors";
+	import UploadIcon from "@lucide/svelte/icons/upload";
+
+	let topBarFileInput = $state<HTMLInputElement | null>(null);
+
+	async function handleTopBarFileChange(event: Event) {
+		const input = event.currentTarget as HTMLInputElement;
+		const file = input.files?.[0] ?? null;
+		if (file) await editor.setFile(file);
+	}
 
 	const legend = [
 		{ color: "#22c55e", label: "keep" },
@@ -61,41 +69,34 @@ import ScriptPanel from "$lib/components/sidebar/ScriptPanel.svelte";
 </svelte:head>
 
 <div class="dark flex h-screen flex-col overflow-hidden bg-snip-bg text-snip-text-primary">
-	<header class="flex h-16 flex-shrink-0 items-center gap-3 border-b border-snip-border bg-snip-bg px-4">
-		<div class="flex size-14 items-center justify-center rounded-2xl bg-primary text-primary-foreground">
-			<ScissorsIcon class="size-10" stroke-width={1.75} />
-		</div>
-
-		<div class="space-y-0.5">
-			<p class="text-sm font-semibold text-white">PantherHacks Editor</p>
-			<p class="text-xs text-snip-text-secondary">{editor.statusDescription}</p>
-		</div>
-
-		<div class="ml-6 hidden items-center gap-2.5 rounded-full border border-snip-border bg-snip-surface px-4 py-2 text-xs text-snip-text-secondary md:flex">
-			<FileVideoIcon class="size-8 shrink-0" stroke-width={1.75} />
-			<span class="max-w-[240px] truncate">{editor.selectedFile?.name ?? "No file loaded"}</span>
-		</div>
-
-		<div class="ml-auto flex items-center gap-4">
-			<div class="flex items-center gap-2 text-xs text-snip-text-secondary">
-				<span
-					class="size-2 rounded-full"
-					class:bg-emerald-500={editor.isReady}
-					class:bg-primary={!editor.isReady && editor.selectedFile}
-					class:bg-snip-text-muted={!editor.selectedFile}
-				></span>
-				<span>{editor.statusLabel}</span>
+	<header class="flex h-14 shrink-0 items-center gap-3 border-b border-snip-border bg-snip-bg px-4">
+		<!-- Logo — clickable home link -->
+		<a href="/" class="flex items-center gap-2.5 transition-opacity hover:opacity-80">
+			<div class="flex size-9 items-center justify-center rounded-xl bg-primary text-primary-foreground">
+				<ScissorsIcon class="size-5" stroke-width={2} />
 			</div>
+			<span class="font-display text-base font-bold tracking-wide text-white">Snip</span>
+		</a>
 
-			<Button
-				variant="outline"
-				size="lg"
-				class="border-snip-border bg-snip-surface px-5 text-base text-snip-text-primary hover:bg-snip-surface-elevated"
-				href="/"
+		<!-- Filename + inline upload -->
+		<div class="ml-4 hidden items-center gap-2 text-sm text-snip-text-secondary md:flex">
+			<FileVideoIcon class="size-4 shrink-0" stroke-width={1.75} />
+			<span class="max-w-[240px] truncate">{editor.selectedFile?.name ?? "No file loaded"}</span>
+			<button
+				type="button"
+				class="ml-1 flex size-7 items-center justify-center rounded-lg text-snip-text-muted transition-colors hover:bg-snip-surface-elevated hover:text-white"
+				title="Replace file"
+				onclick={() => topBarFileInput?.click()}
 			>
-				<ArrowLeftIcon class="mr-2 size-8 shrink-0" stroke-width={1.75} />
-				New upload
-			</Button>
+				<UploadIcon class="size-3.5" stroke-width={2} />
+			</button>
+			<input
+				bind:this={topBarFileInput}
+				type="file"
+				accept="video/*,audio/*"
+				class="hidden"
+				onchange={handleTopBarFileChange}
+			/>
 		</div>
 	</header>
 
@@ -105,6 +106,24 @@ import ScriptPanel from "$lib/components/sidebar/ScriptPanel.svelte";
 				<Resizable.PaneGroup direction="horizontal" class="h-full">
 					<Resizable.Pane defaultSize={25} minSize={15} maxSize={40}>
 						<aside class="flex h-full flex-col overflow-hidden border-r border-snip-border bg-snip-surface">
+							<!-- Hero stats — single source of truth -->
+							{#if editor.totalDurationMs > 0}
+								{@const savedPct = editor.totalDurationMs > 0 ? Math.round((editor.selectedCutDurationMs / editor.totalDurationMs) * 100) : 0}
+								<div class="flex-shrink-0 border-b border-snip-border px-4 py-3">
+									<div class="flex items-baseline gap-2">
+										<span class="font-display text-2xl font-bold text-primary">
+											{editor.formatDuration(editor.selectedCutDurationMs)} saved
+										</span>
+										<span class="font-display text-lg font-semibold text-snip-text-secondary">
+											{savedPct}%
+										</span>
+									</div>
+									<p class="mt-0.5 text-[12px] text-snip-text-secondary">
+										{editor.selectedCutCount} cuts · {editor.formatClock(editor.cleanDurationMs)} clean runtime
+									</p>
+								</div>
+							{/if}
+
 							{#if editor.isBusy}
 								<div class="flex min-h-0 flex-1 flex-col overflow-y-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
 									<div transition:fade={{ duration: 180 }} class="flex flex-shrink-0 flex-col">
@@ -122,7 +141,7 @@ import ScriptPanel from "$lib/components/sidebar/ScriptPanel.svelte";
 										] as tab (tab.id)}
 											<button
 												onclick={() => (sidebarTab = tab.id)}
-												class="flex-1 py-1.5 text-[11px] font-semibold rounded-md transition-all
+												class="font-display flex-1 py-1.5 text-[11px] font-semibold rounded-md transition-all
 													{sidebarTab === tab.id
 													? 'bg-snip-surface-elevated text-white shadow-sm'
 													: 'text-snip-text-muted hover:text-snip-text-secondary'}"
@@ -231,7 +250,7 @@ import ScriptPanel from "$lib/components/sidebar/ScriptPanel.svelte";
 			<div class="flex h-full flex-col border-t border-snip-border bg-snip-surface">
 				<div class="flex h-8 flex-shrink-0 items-center justify-between border-b border-snip-border px-4">
 					<div class="flex items-center gap-3">
-						<span class="text-[10px] font-semibold uppercase tracking-[0.25em] text-snip-text-muted">
+						<span class="font-display text-[10px] font-semibold uppercase tracking-[0.25em] text-snip-text-muted">
 							Clip strip
 						</span>
 						<div class="hidden items-center gap-2.5 md:flex">
@@ -259,10 +278,8 @@ import ScriptPanel from "$lib/components/sidebar/ScriptPanel.svelte";
 					<div class="text-[11px] text-snip-text-secondary">
 						{#if editor.totalDurationMs > 0}
 							{#if editor.swappableBeatCount > 0}
-								{editor.swappableBeatCount} beat swaps ·
+								{editor.swappableBeatCount} beat swaps
 							{/if}
-							{editor.selectedCutCount} selected cuts · {editor.formatDuration(editor.selectedCutDurationMs)}
-							saved · {editor.formatClock(editor.cleanDurationMs)} clean runtime
 						{:else}
 							Waiting for transcript data
 						{/if}
@@ -296,18 +313,18 @@ import ScriptPanel from "$lib/components/sidebar/ScriptPanel.svelte";
 										</button>
 									{:else if block.kind === "cut"}
 										<div
-											class="relative flex items-center justify-center"
+											class="relative flex items-center justify-center opacity-50"
 											style="width:{block.widthPct}%;background:repeating-linear-gradient(
 												-45deg,
-												#ef444412,
-												#ef444412 2px,
-												transparent 2px,
-												transparent 5px
-											);border-bottom:2px solid #ef444466;"
+												#ef444425,
+												#ef444425 2px,
+												#ef444408 2px,
+												#ef444408 5px
+											);border-bottom:2px solid #ef444488;"
 											title="Removed: {block.label} ({editor.formatSegmentDuration(block.durationMs)})"
 										>
 											{#if block.widthPct > 5}
-												<span class="truncate px-1 text-[8px] font-medium text-[#ef4444]/70">
+												<span class="truncate px-1 text-[8px] font-medium text-[#ef4444]">
 													{block.label}
 												</span>
 											{/if}
@@ -331,6 +348,7 @@ import ScriptPanel from "$lib/components/sidebar/ScriptPanel.svelte";
 											{block.beatId.replace(/^beat_/, "B")}
 										</span>
 										{#each block.variants as variant (variant.id)}
+											{@const isRetake = variant.label.toLowerCase().includes("retake")}
 											<button
 												type="button"
 												class="relative flex items-center justify-between gap-1 overflow-hidden border px-2 py-1 text-left transition-colors hover:border-primary/60 {variant.isSelected
@@ -342,10 +360,10 @@ import ScriptPanel from "$lib/components/sidebar/ScriptPanel.svelte";
 													editor.seekTo(variant.start);
 												}}
 											>
-												<span class="truncate text-[10px] {variant.isSelected ? 'font-medium text-white' : 'text-snip-text-secondary'}">
+												<span class="truncate text-[10px] {variant.isSelected ? 'font-medium text-white' : isRetake ? 'italic text-snip-text-muted' : 'text-snip-text-secondary'}">
 													{variant.label}
 												</span>
-												<span class="flex-shrink-0 font-mono text-[9px] text-snip-text-muted">
+												<span class="shrink-0 font-mono text-[9px] text-snip-text-muted">
 													{editor.formatSegmentDuration(variant.durationMs)}
 												</span>
 											</button>
@@ -357,18 +375,12 @@ import ScriptPanel from "$lib/components/sidebar/ScriptPanel.svelte";
 					{:else if editor.clipStripSegments.length > 0}
 						<div class="flex h-full items-center gap-[2px] overflow-hidden">
 						{#each editor.clipStripSegments as segment (segment.id)}
+							{@const isKept = segment.type === "good"}
+							{@const segColor = isKept ? "#22c55e" : segment.type === "filler_words" ? "#ef4444" : segment.type === "dead_space" ? "#6b7280" : "#3b82f6"}
 							<button
 								type="button"
-								class="flex h-full max-h-[64px] min-w-[2px] cursor-pointer items-center justify-center overflow-hidden rounded-sm transition hover:brightness-125"
-								style={`width:${segment.widthPct}%;background:${
-									segment.type === "good"
-										? "#22c55e"
-										: segment.type === "filler_words"
-											? "#ef4444"
-											: segment.type === "dead_space"
-												? "#6b7280"
-												: "#3b82f6"
-								};`}
+								class="flex h-full max-h-[64px] min-w-[2px] cursor-pointer items-center justify-center overflow-hidden rounded-sm transition hover:brightness-125 {isKept ? '' : 'opacity-40'}"
+								style={`width:${segment.widthPct}%;${isKept ? `background:${segColor}` : `background:repeating-linear-gradient(-45deg,${segColor}30,${segColor}30 2px,${segColor}10 2px,${segColor}10 5px)`};`}
 								onclick={() => editor.seekTo(segment.start)}
 								>
 									{#if segment.label && segment.widthPct > 4}

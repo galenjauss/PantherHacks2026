@@ -89,22 +89,13 @@
 </script>
 
 <div class="flex flex-col overflow-y-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-	<!-- Summary bar -->
-	<div class="flex items-center justify-between px-4 py-3">
-		<p class="text-[12px] text-snip-text-secondary">
-			{editor.selectedCutCount} cuts · <span class="font-medium text-primary">−{editor.formatDuration(editor.selectedCutDurationMs)}</span>
-		</p>
-	</div>
-
-	<div class="border-t border-snip-border"></div>
-
 	<!-- Cut categories -->
 	<div class="flex flex-col">
 		{#each rows as row, index (row.key)}
 			<div class="flex items-center gap-3 px-4 py-3 transition-colors hover:bg-snip-surface-elevated">
 				<span class="mt-[1px] size-[6px] flex-shrink-0 self-start rounded-full" style={`background:${row.color}`}></span>
 				<div class="min-w-0 flex-1">
-					<p class="text-[13px] font-medium leading-[1.3] text-white">{row.label}</p>
+					<p class="font-display text-[13px] font-semibold leading-[1.3] text-white">{row.label}</p>
 					<p class="mt-[1px] text-[11px] leading-[1.4] text-snip-text-secondary">
 						{row.description(getCount(row.key))}
 					</p>
@@ -132,7 +123,7 @@
 		<div class="space-y-3">
 			<div class="flex items-center justify-between gap-3">
 				<div>
-					<p class="text-[12px] font-medium text-snip-text-primary">Min pause length</p>
+					<p class="font-display text-[12px] font-semibold text-snip-text-primary">Min pause length</p>
 					<p class="text-[11px] text-snip-text-muted">Silence shorter than this is kept.</p>
 				</div>
 				<span class="rounded-full border border-snip-border bg-snip-surface-elevated px-2 py-[3px] font-mono text-[11px] text-snip-text-secondary">
@@ -153,13 +144,17 @@
 					max={2000}
 					step={25}
 				/>
+				<div class="mt-1 flex justify-between text-[10px] text-snip-text-muted">
+					<span>Tight</span>
+					<span>Relaxed</span>
+				</div>
 			</div>
 		</div>
 
 		<div class="space-y-3">
 			<div class="flex items-center justify-between gap-3">
 				<div>
-					<p class="text-[12px] font-medium text-snip-text-primary">Tail trim</p>
+					<p class="font-display text-[12px] font-semibold text-snip-text-primary">Tail trim</p>
 					<p class="text-[11px] text-snip-text-muted">Trim from the end of each kept clip.</p>
 				</div>
 				<span class="rounded-full border border-snip-border bg-snip-surface-elevated px-2 py-[3px] font-mono text-[11px] text-snip-text-secondary">
@@ -180,6 +175,10 @@
 					max={1000}
 					step={25}
 				/>
+				<div class="mt-1 flex justify-between text-[10px] text-snip-text-muted">
+					<span>None</span>
+					<span>More</span>
+				</div>
 			</div>
 		</div>
 	</div>

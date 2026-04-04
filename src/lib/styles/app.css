@@ -2,6 +2,7 @@
 @import "tw-animate-css";
 @import "shadcn-svelte/tailwind.css";
 @import "@fontsource-variable/inter";
+@import "@fontsource-variable/space-grotesk";
 
 @custom-variant dark (&:is(.dark *));
 
@@ -91,6 +92,7 @@
 
 @theme inline {
 	--font-sans: "Inter Variable", sans-serif;
+	--font-display: "Space Grotesk Variable", sans-serif;
 	--color-snip-bg: var(--snip-bg);
 	--color-snip-surface: var(--snip-surface);
 	--color-snip-surface-elevated: var(--snip-surface-elevated);

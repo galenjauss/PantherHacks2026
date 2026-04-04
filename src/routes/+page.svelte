@@ -92,8 +92,8 @@
 					<WandSparklesIcon class="size-5" />
 				</div>
 				<div>
-					<p class="text-sm font-semibold tracking-[0.18em] text-white uppercase">Snip</p>
-					<p class="text-xs text-snip-text-secondary">Transcript-first cleanup</p>
+					<p class="font-display text-sm font-bold tracking-[0.18em] text-white uppercase">Snip</p>
+					<p class="font-display text-xs text-snip-text-secondary">Transcript-first cleanup</p>
 				</div>
 			</div>
 
@@ -113,11 +113,11 @@
 
 		<main class="flex min-h-0 items-center justify-center">
 			<div class="flex w-full max-w-4xl flex-col items-center text-center">
-				<p class="mb-5 text-xs font-medium uppercase tracking-[0.28em] text-muted-foreground">
+				<p class="font-display mb-5 text-xs font-medium uppercase tracking-[0.28em] text-muted-foreground">
 					Audio + video upload
 				</p>
 
-				<h1 class="max-w-4xl text-5xl leading-[0.94] font-semibold tracking-tight text-white sm:text-6xl lg:text-7xl">
+				<h1 class="font-display max-w-4xl text-5xl leading-[0.94] font-semibold tracking-tight text-white sm:text-6xl lg:text-7xl">
 					Upload a clip.
 					<br />
 					Get the timestamps.
