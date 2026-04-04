@@ -90,6 +90,22 @@ interface EditorClipStripBeatBlock {
 	>;
 }
 
+export interface EditedTimelineBlock {
+	id: string;
+	kind: "beat" | "gap";
+	beatId: string | null;
+	label: string;
+	durationMs: number;
+	widthPct: number;
+	color: string;
+	startMs: number;
+}
+
+const BEAT_COLORS = [
+	"#7c3aed", "#3b82f6", "#06b6d4", "#10b981", "#f59e0b",
+	"#ef4444", "#ec4899", "#8b5cf6", "#14b8a6", "#f97316"
+];
+
 const SEGMENT_META: Record<EditorCutCategory, SegmentMeta> = {
 	filler_words: {
 		label: "Filler words",
@@ -719,6 +735,56 @@ class VideoEditorState {
 			...block,
 			widthPct: Math.max((widthMs / totalWidthMs) * 100, 10)
 		}));
+	}
+
+	get editedTimelineBlocks(): EditedTimelineBlock[] {
+		const beatGroups = this.beatGroups;
+
+		if (beatGroups.length === 0) return [];
+
+		const blocks: EditedTimelineBlock[] = [];
+		const colorMap = new Map<string, string>();
+
+		for (const [index, group] of beatGroups.entries()) {
+			colorMap.set(group.beatId, BEAT_COLORS[index % BEAT_COLORS.length]);
+		}
+
+		let runningMs = 0;
+
+		for (const group of beatGroups) {
+			const variant = this.selectedVariantForBeatId(group.beatId);
+			if (!variant) continue;
+
+			const beatDuration = variant.durationMs;
+			const text = variant.previewText;
+			const label = text.length > 20 ? text.slice(0, 19) + "…" : text;
+
+			blocks.push({
+				id: `beat-${group.beatId}`,
+				kind: "beat",
+				beatId: group.beatId,
+				label,
+				durationMs: beatDuration,
+				widthPct: 0,
+				color: colorMap.get(group.beatId) ?? BEAT_COLORS[0],
+				startMs: variant.start
+			});
+
+			runningMs += beatDuration;
+		}
+
+		if (runningMs <= 0) return [];
+
+		return blocks.map((block) => ({
+			...block,
+			widthPct: Math.max((block.durationMs / runningMs) * 100, 3)
+		}));
+	}
+
+	selectedVariantForBeatId(beatId: string): EditorBeatVariant | undefined {
+		const group = this.beatGroups.find((g) => g.beatId === beatId);
+		if (!group) return undefined;
+		return this.selectedVariantForGroup(group);
 	}
 
 	get clipStripSegments() {

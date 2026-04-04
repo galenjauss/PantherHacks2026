@@ -2,12 +2,15 @@
 	import { onMount } from "svelte";
 	import { fade } from "svelte/transition";
 	import { isProcessed as processedStore } from "$lib/stores/snip";
+	import { videoEditorState as editor } from "$lib/stores/video-editor.svelte";
 	import VideoPreview from "$lib/components/main/VideoPreview.svelte";
 	import ScrubbableTimeline from "$lib/components/main/ScrubbableTimeline.svelte";
+	import EditedTimeline from "$lib/components/main/EditedTimeline.svelte";
 	import FilesPanel from "$lib/components/sidebar/FilesPanel.svelte";
 	import SnipAIPanel from "$lib/components/sidebar/SnipAIPanel.svelte";
 	import AnalysisPanel from "$lib/components/sidebar/AnalysisPanel.svelte";
 	import CutSettingsPanel from "$lib/components/sidebar/CutSettingsPanel.svelte";
+	import ScriptPanel from "$lib/components/sidebar/ScriptPanel.svelte";
 
 	// ── State machine ─────────────────────────────────────────────────
 	let isProcessed = $state(false);
@@ -32,6 +35,8 @@
 	});
 
 	let applyingCuts = $state(false);
+	let sidebarTab = $state<"script" | "cuts">("script");
+	let hoveredBeatId = $state<string | null>(null);
 
 	// Keep layout store in sync with local isProcessed
 	$effect(() => {
@@ -101,6 +106,10 @@
 		setTimeout(() => {
 			applyingCuts = false;
 		}, 1500);
+	}
+
+	function handleSeekBeat(_beatId: string, startMs: number) {
+		editor.seekTo(startMs);
 	}
 
 	// ── Clip list ────────────────────────────────────────────────────
@@ -317,136 +326,157 @@
 
 		<div class="border-t border-[#222222]"></div>
 
-		<!-- ── Detected cuts section ────────────────────────────────── -->
-		<div class="px-4 pt-4 pb-3 border-b border-[#222222] flex-shrink-0">
-			<div class="flex items-center justify-between mb-3">
-				<h2 class="text-[13px] font-semibold text-[#f5f5f5]">
-					Detected cuts
-				</h2>
-				<span
-					class="text-[10px] text-[#6b7280] bg-[#1a1a1a] px-2 py-[3px] rounded-full border border-[#222222]"
+		<!-- ── Tab toggle: Script / Cuts ────────────────────────────── -->
+		<div class="px-4 pt-3 pb-2 border-b border-[#222222] flex-shrink-0">
+			<div class="flex rounded-lg bg-[#1a1a1a] p-0.5">
+				<button
+					onclick={() => (sidebarTab = "script")}
+					class="flex-1 py-1.5 text-[11px] font-semibold rounded-md transition-all
+						{sidebarTab === 'script'
+						? 'bg-[#222222] text-[#f5f5f5] shadow-sm'
+						: 'text-[#6b7280] hover:text-[#a1a1aa]'}"
 				>
-					47 cuts &nbsp;·&nbsp; 2m 14s saved
-				</span>
+					Script
+				</button>
+				<button
+					onclick={() => (sidebarTab = "cuts")}
+					class="flex-1 py-1.5 text-[11px] font-semibold rounded-md transition-all
+						{sidebarTab === 'cuts'
+						? 'bg-[#222222] text-[#f5f5f5] shadow-sm'
+						: 'text-[#6b7280] hover:text-[#a1a1aa]'}"
+				>
+					Cuts
+					<span class="ml-1 text-[10px] text-[#3f3f46]">{editor.cutSegments.length || clips.length}</span>
+				</button>
+			</div>
+		</div>
+
+		{#if sidebarTab === "script"}
+			<!-- ── Script (beat-first) view ────────────────────────────── -->
+			<div class="flex-1 overflow-y-auto pb-[120px] [&::-webkit-scrollbar]:hidden" style="scrollbar-width:none">
+				<ScriptPanel onSeekBeat={handleSeekBeat} />
+			</div>
+		{:else}
+			<!-- ── Cuts (detail) view ──────────────────────────────────── -->
+			<div class="px-4 pt-3 pb-2 border-b border-[#222222] flex-shrink-0">
+				<div class="flex flex-wrap gap-1.5">
+					{#each filters as f}
+						<button
+							onclick={() => (activeFilter = f.id)}
+							class="flex items-center gap-1.5 px-2 py-[5px] rounded-[5px] text-[11px] font-medium transition-colors
+								{activeFilter === f.id
+								? 'bg-[#1a1a1a] text-[#f5f5f5] border border-[#333333]'
+								: 'text-[#6b7280] hover:text-[#a1a1aa] border border-transparent'}"
+						>
+							{#if f.color}<span
+									class="w-[6px] h-[6px] rounded-full flex-shrink-0"
+									style="background:{f.color}"
+								></span>{/if}
+							{f.label}
+							<span class="text-[#3f3f46] ml-0.5">{f.count}</span>
+						</button>
+					{/each}
+				</div>
 			</div>
 
-			<div class="flex flex-wrap gap-1.5">
-				{#each filters as f}
+			<div
+				class="flex items-center justify-between px-4 py-[7px] border-b border-[#222222] flex-shrink-0"
+			>
+				<div class="flex items-center">
 					<button
-						onclick={() => (activeFilter = f.id)}
-						class="flex items-center gap-1.5 px-2 py-[5px] rounded-[5px] text-[11px] font-medium transition-colors
-							{activeFilter === f.id
-							? 'bg-[#1a1a1a] text-[#f5f5f5] border border-[#333333]'
-							: 'text-[#6b7280] hover:text-[#a1a1aa] border border-transparent'}"
+						onclick={() => (selected = new Set(clips.map((c) => c.id)))}
+						class="text-[11px] text-[#6b7280] hover:text-[#f5f5f5] px-2 py-1 rounded transition-colors"
+						>Select all</button
 					>
-						{#if f.color}<span
-								class="w-[6px] h-[6px] rounded-full flex-shrink-0"
-								style="background:{f.color}"
-							></span>{/if}
-						{f.label}
-						<span class="text-[#3f3f46] ml-0.5">{f.count}</span>
+					<span class="text-[#3f3f46] text-[11px]">·</span>
+					<button
+						onclick={() => (selected = new Set())}
+						class="text-[11px] text-[#6b7280] hover:text-[#f5f5f5] px-2 py-1 rounded transition-colors"
+						>Deselect</button
+					>
+				</div>
+				<span class="text-[11px] text-[#3f3f46]"
+					>{selected.size} selected</span
+				>
+			</div>
+
+			<div
+				class="flex-1 overflow-y-auto pb-[120px] [&::-webkit-scrollbar]:hidden"
+				style="scrollbar-width:none"
+			>
+				{#each visibleClips as clip (clip.id)}
+					<button
+						class="w-full flex items-center gap-3 px-4 py-[10px] hover:bg-[#1a1a1a] group transition-colors text-left"
+						onclick={() => {
+							if (selected.has(clip.id)) selected.delete(clip.id);
+							else selected.add(clip.id);
+							selected = selected;
+						}}
+					>
+						<div
+							class="w-0.5 h-8 rounded-full flex-shrink-0"
+							style="background:{clip.color}"
+						></div>
+						<div
+							class="w-[14px] h-[14px] rounded-[3px] border flex items-center justify-center flex-shrink-0 transition-colors
+							{selected.has(clip.id)
+								? 'bg-[#7c3aed] border-[#7c3aed]'
+								: 'border-[#333333] bg-[#1a1a1a] group-hover:border-[#555555]'}"
+						>
+							{#if selected.has(clip.id)}
+								<svg
+									class="w-2.5 h-2.5 text-white"
+									viewBox="0 0 10 10"
+									fill="none"
+								>
+									<path
+										d="M1.5 5l2.5 2.5 4.5-5"
+										stroke="currentColor"
+										stroke-width="1.5"
+										stroke-linecap="round"
+										stroke-linejoin="round"
+									/>
+								</svg>
+							{/if}
+						</div>
+						<div class="flex-1 min-w-0">
+							<div class="flex items-center justify-between gap-1">
+								<span
+									class="text-[12px] text-[#f5f5f5] font-medium truncate"
+									>{clip.label}</span
+								>
+								<span
+									class="text-[10px] text-[#3f3f46] flex-shrink-0"
+									>{clip.dur}</span
+								>
+							</div>
+							<span class="text-[10px] text-[#6b7280] font-mono"
+								>{clip.time}</span
+							>
+						</div>
+						<div class="flex items-center gap-px flex-shrink-0">
+							{#each Array(8) as _, bi}
+								<div
+									class="w-px rounded-full bg-[#2a2a2a] group-hover:bg-[#333333] transition-colors"
+									style="height:{miniBarHeight(clip.id, bi)}px"
+								></div>
+							{/each}
+						</div>
 					</button>
 				{/each}
 			</div>
-		</div>
 
-		<div
-			class="flex items-center justify-between px-4 py-[7px] border-b border-[#222222] flex-shrink-0"
-		>
-			<div class="flex items-center">
-				<button
-					onclick={() => (selected = new Set(clips.map((c) => c.id)))}
-					class="text-[11px] text-[#6b7280] hover:text-[#f5f5f5] px-2 py-1 rounded transition-colors"
-					>Select all</button
-				>
-				<span class="text-[#3f3f46] text-[11px]">·</span>
-				<button
-					onclick={() => (selected = new Set())}
-					class="text-[11px] text-[#6b7280] hover:text-[#f5f5f5] px-2 py-1 rounded transition-colors"
-					>Deselect</button
-				>
-			</div>
-			<span class="text-[11px] text-[#3f3f46]"
-				>{selected.size} selected</span
+			<div
+				class="px-4 py-3 border-t border-[#222222] bg-[#0a0a0a] flex-shrink-0"
 			>
-		</div>
-
-		<div
-			class="flex-1 overflow-y-auto pb-[120px] [&::-webkit-scrollbar]:hidden"
-			style="scrollbar-width:none"
-		>
-			{#each visibleClips as clip (clip.id)}
 				<button
-					class="w-full flex items-center gap-3 px-4 py-[10px] hover:bg-[#1a1a1a] group transition-colors text-left"
-					onclick={() => {
-						if (selected.has(clip.id)) selected.delete(clip.id);
-						else selected.add(clip.id);
-						selected = selected;
-					}}
+					class="w-full py-2 bg-[#7c3aed] hover:bg-[#6d28d9] active:bg-[#5b21b6] active:scale-95 text-white text-[12px] font-semibold rounded-[6px] transition-all disabled:opacity-40 disabled:pointer-events-none"
+					disabled={selected.size === 0}
 				>
-					<div
-						class="w-0.5 h-8 rounded-full flex-shrink-0"
-						style="background:{clip.color}"
-					></div>
-					<div
-						class="w-[14px] h-[14px] rounded-[3px] border flex items-center justify-center flex-shrink-0 transition-colors
-						{selected.has(clip.id)
-							? 'bg-[#7c3aed] border-[#7c3aed]'
-							: 'border-[#333333] bg-[#1a1a1a] group-hover:border-[#555555]'}"
-					>
-						{#if selected.has(clip.id)}
-							<svg
-								class="w-2.5 h-2.5 text-white"
-								viewBox="0 0 10 10"
-								fill="none"
-							>
-								<path
-									d="M1.5 5l2.5 2.5 4.5-5"
-									stroke="currentColor"
-									stroke-width="1.5"
-									stroke-linecap="round"
-									stroke-linejoin="round"
-								/>
-							</svg>
-						{/if}
-					</div>
-					<div class="flex-1 min-w-0">
-						<div class="flex items-center justify-between gap-1">
-							<span
-								class="text-[12px] text-[#f5f5f5] font-medium truncate"
-								>{clip.label}</span
-							>
-							<span
-								class="text-[10px] text-[#3f3f46] flex-shrink-0"
-								>{clip.dur}</span
-							>
-						</div>
-						<span class="text-[10px] text-[#6b7280] font-mono"
-							>{clip.time}</span
-						>
-					</div>
-					<div class="flex items-center gap-px flex-shrink-0">
-						{#each Array(8) as _, bi}
-							<div
-								class="w-px rounded-full bg-[#2a2a2a] group-hover:bg-[#333333] transition-colors"
-								style="height:{miniBarHeight(clip.id, bi)}px"
-							></div>
-						{/each}
-					</div>
+					Apply {selected.size} cut{selected.size !== 1 ? "s" : ""}
 				</button>
-			{/each}
-		</div>
-
-		<div
-			class="px-4 py-3 border-t border-[#222222] bg-[#0a0a0a] flex-shrink-0"
-		>
-			<button
-				class="w-full py-2 bg-[#7c3aed] hover:bg-[#6d28d9] active:bg-[#5b21b6] active:scale-95 text-white text-[12px] font-semibold rounded-[6px] transition-all disabled:opacity-40 disabled:pointer-events-none"
-				disabled={selected.size === 0}
-			>
-				Apply {selected.size} cut{selected.size !== 1 ? "s" : ""}
-			</button>
-		</div>
+			</div>
+		{/if}
 	</aside>
 
 	<!-- ── Main content area ─────────────────────────────────────────── -->
@@ -467,6 +497,13 @@
 				[dev] {isProcessed ? "→ processing" : "→ processed"}
 			</button>
 		</div>
+
+		<!-- Edited timeline (beat blocks) -->
+		{#if isProcessed && editor.editedTimelineBlocks.length > 0}
+			<div class="border-t border-[#222222] bg-[#111111] px-4 pt-3 pb-2 flex-shrink-0">
+				<EditedTimeline bind:hoveredBeatId onSeekBeat={handleSeekBeat} />
+			</div>
+		{/if}
 
 		<!-- Waveform / timeline -->
 		<div
