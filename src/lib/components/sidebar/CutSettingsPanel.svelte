@@ -1,8 +1,11 @@
 <script lang="ts">
+	import { onDestroy } from "svelte";
 	import { Switch } from "$lib/components/ui/switch";
 	import { Slider } from "$lib/components/ui/slider";
 	import { Button } from "$lib/components/ui/button";
 	import { videoEditorState as editor } from "$lib/stores/video-editor.svelte";
+
+	const SLIDER_DEBOUNCE_MS = 180;
 
 	const rows = [
 		{
@@ -28,6 +31,62 @@
 	function getCount(key: (typeof rows)[number]["key"]): number {
 		return editor.analysisStats.find((item) => item.category === key)?.count ?? 0;
 	}
+
+	let deadSpaceThresholdDraft = $state(editor.deadSpaceThreshold);
+	let clipEndTrimDraft = $state(editor.clipEndTrim);
+
+	let deadSpaceThresholdTimeout: ReturnType<typeof setTimeout> | null = null;
+	let clipEndTrimTimeout: ReturnType<typeof setTimeout> | null = null;
+
+	function scheduleDeadSpaceThresholdCommit(value: number) {
+		if (deadSpaceThresholdTimeout) {
+			clearTimeout(deadSpaceThresholdTimeout);
+		}
+
+		deadSpaceThresholdTimeout = setTimeout(() => {
+			editor.deadSpaceThreshold = value;
+			deadSpaceThresholdTimeout = null;
+		}, SLIDER_DEBOUNCE_MS);
+	}
+
+	function commitDeadSpaceThreshold(value: number) {
+		if (deadSpaceThresholdTimeout) {
+			clearTimeout(deadSpaceThresholdTimeout);
+			deadSpaceThresholdTimeout = null;
+		}
+
+		editor.deadSpaceThreshold = value;
+	}
+
+	function scheduleClipEndTrimCommit(value: number) {
+		if (clipEndTrimTimeout) {
+			clearTimeout(clipEndTrimTimeout);
+		}
+
+		clipEndTrimTimeout = setTimeout(() => {
+			editor.clipEndTrim = value;
+			clipEndTrimTimeout = null;
+		}, SLIDER_DEBOUNCE_MS);
+	}
+
+	function commitClipEndTrim(value: number) {
+		if (clipEndTrimTimeout) {
+			clearTimeout(clipEndTrimTimeout);
+			clipEndTrimTimeout = null;
+		}
+
+		editor.clipEndTrim = value;
+	}
+
+	onDestroy(() => {
+		if (deadSpaceThresholdTimeout) {
+			clearTimeout(deadSpaceThresholdTimeout);
+		}
+
+		if (clipEndTrimTimeout) {
+			clearTimeout(clipEndTrimTimeout);
+		}
+	});
 </script>
 
 <div class="flex flex-col overflow-y-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
@@ -47,7 +106,7 @@
 	<div class="border-t border-snip-border"></div>
 
 	<div class="flex flex-col">
-		{#each rows as row, index}
+		{#each rows as row, index (row.key)}
 			<div class="flex items-center gap-3 px-4 py-3 transition-colors hover:bg-snip-surface-elevated">
 				<span class="mt-[1px] size-[6px] flex-shrink-0 self-start rounded-full" style={`background:${row.color}`}></span>
 				<div class="min-w-0 flex-1">
@@ -82,12 +141,23 @@
 					<p class="text-[11px] text-snip-text-muted">Pauses longer than this become removable segments.</p>
 				</div>
 				<span class="rounded-full border border-snip-border bg-snip-surface-elevated px-2 py-[3px] font-mono text-[11px] text-snip-text-secondary">
-					{editor.deadSpaceThreshold} ms
+					{deadSpaceThresholdDraft} ms
 				</span>
 			</div>
 
 			<div class="slider-dark">
-				<Slider type="single" bind:value={editor.deadSpaceThreshold} min={0} max={2000} step={25} />
+				<Slider
+					type="single"
+					value={deadSpaceThresholdDraft}
+					onValueChange={(value) => {
+						deadSpaceThresholdDraft = value;
+						scheduleDeadSpaceThresholdCommit(value);
+					}}
+					onValueCommit={commitDeadSpaceThreshold}
+					min={0}
+					max={2000}
+					step={25}
+				/>
 			</div>
 		</div>
 
@@ -98,12 +168,23 @@
 					<p class="text-[11px] text-snip-text-muted">Trim the tail of each kept section before preview.</p>
 				</div>
 				<span class="rounded-full border border-snip-border bg-snip-surface-elevated px-2 py-[3px] font-mono text-[11px] text-snip-text-secondary">
-					{editor.clipEndTrim} ms
+					{clipEndTrimDraft} ms
 				</span>
 			</div>
 
 			<div class="slider-dark">
-				<Slider type="single" bind:value={editor.clipEndTrim} min={0} max={1000} step={25} />
+				<Slider
+					type="single"
+					value={clipEndTrimDraft}
+					onValueChange={(value) => {
+						clipEndTrimDraft = value;
+						scheduleClipEndTrimCommit(value);
+					}}
+					onValueCommit={commitClipEndTrim}
+					min={0}
+					max={1000}
+					step={25}
+				/>
 			</div>
 		</div>
 	</div>
