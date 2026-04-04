@@ -92,9 +92,10 @@ interface EditorClipStripBeatBlock {
 
 export interface EditedTimelineBlock {
 	id: string;
-	kind: "beat" | "gap";
+	kind: "beat" | "gap" | "cut";
 	beatId: string | null;
 	label: string;
+	humanLabel: string;
 	durationMs: number;
 	widthPct: number;
 	color: string;
@@ -191,6 +192,19 @@ function variantBaseId(beatId: string, takeId: string): string {
 	return `${beatId}::${takeId}`;
 }
 
+function humanizeId(id: string, prefix: string): string {
+	const num = id.replace(new RegExp(`^${prefix}_`), "");
+	return `${prefix.charAt(0).toUpperCase()}${prefix.slice(1)} ${num}`;
+}
+
+function humanizeBeatId(beatId: string): string {
+	return humanizeId(beatId, "beat");
+}
+
+function humanizeTakeId(takeId: string): string {
+	return humanizeId(takeId, "take");
+}
+
 function variantPreviewText(refs: AnalysisSegmentRef[]): string {
 	const text = refs
 		.map((ref) => ref.segment.text.trim())
@@ -279,13 +293,14 @@ function buildBeatGroups(refs: AnalysisSegmentRef[]): EditorBeatGroup[] {
 						};
 					};
 
+					const takeName = humanizeTakeId(aggregate.takeId);
 					const builtVariants = [
 						buildVariant(
 							"good",
 							goodRefs,
-							retakeRefs.length > 0 ? `${aggregate.takeId} final` : aggregate.takeId
+							retakeRefs.length > 0 ? takeName : takeName
 						),
-						buildVariant("retake", retakeRefs, `${aggregate.takeId} retake`)
+						buildVariant("retake", retakeRefs, `${takeName} (retake)`)
 					].filter((variant): variant is EditorBeatVariant => Boolean(variant));
 
 					return builtVariants;
@@ -749,13 +764,74 @@ class VideoEditorState {
 			colorMap.set(group.beatId, BEAT_COLORS[index % BEAT_COLORS.length]);
 		}
 
-		let runningMs = 0;
+		// Build ordered beat entries with their selected variants
+		const beatEntries = beatGroups
+			.map((group, groupIndex) => {
+				const variant = this.selectedVariantForBeatId(group.beatId);
+				if (!variant) return null;
+				return { group, variant, groupIndex };
+			})
+			.filter((entry): entry is NonNullable<typeof entry> => Boolean(entry));
 
-		for (const group of beatGroups) {
-			const variant = this.selectedVariantForBeatId(group.beatId);
-			if (!variant) continue;
+		if (beatEntries.length === 0) return [];
 
-			const beatDuration = variant.durationMs;
+		// Collect cut segments between beats
+		const composedSegments = this.baseComposedAnalysisSegments;
+		let totalMs = 0;
+
+		for (let i = 0; i < beatEntries.length; i++) {
+			const entry = beatEntries[i];
+			const { group, variant } = entry;
+
+			// Add cut/gap segments that fall before this beat (after previous beat or start)
+			const prevEnd = i > 0 ? beatEntries[i - 1].variant.end : 0;
+			const gapStart = prevEnd;
+			const gapEnd = variant.start;
+
+			if (gapEnd > gapStart) {
+				// Find cuts in this gap region
+				const cutsInGap = composedSegments.filter(
+					(seg) => seg.category !== "good" && seg.start >= gapStart && seg.end <= gapEnd
+				);
+				const cutDuration = cutsInGap.reduce((sum, seg) => sum + Math.max(seg.end - seg.start, 0), 0);
+
+				if (cutDuration > 0) {
+					const cutLabel = cutsInGap.length === 1
+						? SEGMENT_META[cutsInGap[0].category as EditorCutCategory]?.shortLabel ?? "Cut"
+						: `${cutsInGap.length} cuts`;
+
+					blocks.push({
+						id: `cut-before-${group.beatId}`,
+						kind: "cut",
+						beatId: null,
+						label: cutLabel,
+						humanLabel: cutLabel,
+						durationMs: cutDuration,
+						widthPct: 0,
+						color: "#ef4444",
+						startMs: gapStart
+					});
+					totalMs += cutDuration;
+				}
+
+				const remainingGap = (gapEnd - gapStart) - cutDuration;
+				if (remainingGap > 200) {
+					blocks.push({
+						id: `gap-before-${group.beatId}`,
+						kind: "gap",
+						beatId: null,
+						label: "",
+						humanLabel: "",
+						durationMs: remainingGap,
+						widthPct: 0,
+						color: "#1a1a1a",
+						startMs: gapStart + cutDuration
+					});
+					totalMs += remainingGap;
+				}
+			}
+
+			// Add beat block
 			const text = variant.previewText;
 			const label = text.length > 20 ? text.slice(0, 19) + "…" : text;
 
@@ -764,20 +840,20 @@ class VideoEditorState {
 				kind: "beat",
 				beatId: group.beatId,
 				label,
-				durationMs: beatDuration,
+				humanLabel: humanizeBeatId(group.beatId),
+				durationMs: variant.durationMs,
 				widthPct: 0,
 				color: colorMap.get(group.beatId) ?? BEAT_COLORS[0],
 				startMs: variant.start
 			});
-
-			runningMs += beatDuration;
+			totalMs += variant.durationMs;
 		}
 
-		if (runningMs <= 0) return [];
+		if (totalMs <= 0) return [];
 
 		return blocks.map((block) => ({
 			...block,
-			widthPct: Math.max((block.durationMs / runningMs) * 100, 3)
+			widthPct: Math.max((block.durationMs / totalMs) * 100, block.kind === "beat" ? 3 : 1.5)
 		}));
 	}
 

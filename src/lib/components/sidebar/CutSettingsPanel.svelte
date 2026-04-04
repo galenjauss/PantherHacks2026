@@ -2,7 +2,6 @@
 	import { onDestroy } from "svelte";
 	import { Switch } from "$lib/components/ui/switch";
 	import { Slider } from "$lib/components/ui/slider";
-	import { Button } from "$lib/components/ui/button";
 	import { videoEditorState as editor } from "$lib/stores/video-editor.svelte";
 
 	const SLIDER_DEBOUNCE_MS = 180;
@@ -90,21 +89,16 @@
 </script>
 
 <div class="flex flex-col overflow-y-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-	<div class="flex flex-col gap-3 px-4 pb-3 pt-4">
-		<span class="text-[10px] font-semibold uppercase tracking-[0.25em] text-snip-text-muted">Cut Settings</span>
-
-		<div class="flex items-center gap-2">
-			<span class="size-[7px] flex-shrink-0 rounded-full bg-primary shadow-[0_0_5px_#7c3aed80]"></span>
-			<span class="text-[13px] font-medium text-white">live cut plan</span>
-		</div>
-
+	<!-- Summary bar -->
+	<div class="flex items-center justify-between px-4 py-3">
 		<p class="text-[12px] text-snip-text-secondary">
-			{editor.selectedCutCount} selected cuts · <span class="font-medium text-primary">−{editor.formatDuration(editor.selectedCutDurationMs)}</span> removed
+			{editor.selectedCutCount} cuts · <span class="font-medium text-primary">−{editor.formatDuration(editor.selectedCutDurationMs)}</span>
 		</p>
 	</div>
 
 	<div class="border-t border-snip-border"></div>
 
+	<!-- Cut categories -->
 	<div class="flex flex-col">
 		{#each rows as row, index (row.key)}
 			<div class="flex items-center gap-3 px-4 py-3 transition-colors hover:bg-snip-surface-elevated">
@@ -133,12 +127,13 @@
 
 	<div class="mt-1 border-t border-snip-border"></div>
 
+	<!-- Thresholds -->
 	<div class="flex flex-col gap-4 px-4 py-4">
 		<div class="space-y-3">
 			<div class="flex items-center justify-between gap-3">
 				<div>
-					<p class="text-[10px] font-semibold uppercase tracking-[0.25em] text-snip-text-muted">Dead space threshold</p>
-					<p class="text-[11px] text-snip-text-muted">Pauses longer than this become removable segments.</p>
+					<p class="text-[12px] font-medium text-snip-text-primary">Min pause length</p>
+					<p class="text-[11px] text-snip-text-muted">Silence shorter than this is kept.</p>
 				</div>
 				<span class="rounded-full border border-snip-border bg-snip-surface-elevated px-2 py-[3px] font-mono text-[11px] text-snip-text-secondary">
 					{deadSpaceThresholdDraft} ms
@@ -164,8 +159,8 @@
 		<div class="space-y-3">
 			<div class="flex items-center justify-between gap-3">
 				<div>
-					<p class="text-[10px] font-semibold uppercase tracking-[0.25em] text-snip-text-muted">Clip end trim</p>
-					<p class="text-[11px] text-snip-text-muted">Trim the tail of each kept section before preview.</p>
+					<p class="text-[12px] font-medium text-snip-text-primary">Tail trim</p>
+					<p class="text-[11px] text-snip-text-muted">Trim from the end of each kept clip.</p>
 				</div>
 				<span class="rounded-full border border-snip-border bg-snip-surface-elevated px-2 py-[3px] font-mono text-[11px] text-snip-text-secondary">
 					{clipEndTrimDraft} ms
@@ -187,21 +182,6 @@
 				/>
 			</div>
 		</div>
-	</div>
-
-	<div class="border-t border-snip-border"></div>
-
-	<div class="px-4 py-4">
-		<Button
-			class="h-11 w-full rounded-lg text-[13px] font-medium"
-			onclick={() => {
-				editor.setPreviewMode("after");
-				void editor.previewAppliedCuts();
-			}}
-			disabled={!editor.videoUrl || editor.playbackSegments.length === 0}
-		>
-			preview applied cuts
-		</Button>
 	</div>
 </div>
 

@@ -9,8 +9,15 @@
 	import SnipAIPanel from "$lib/components/sidebar/SnipAIPanel.svelte";
 	import CutSettingsPanel from "$lib/components/sidebar/CutSettingsPanel.svelte";
 	import BeatSwapPanel from "$lib/components/sidebar/BeatSwapPanel.svelte";
+	import ScriptPanel from "$lib/components/sidebar/ScriptPanel.svelte";
 	import VideoPreview from "$lib/components/main/VideoPreview.svelte";
 	import { videoEditorState as editor } from "$lib/stores/video-editor.svelte";
+
+	let sidebarTab = $state<"script" | "cuts" | "settings">("script");
+
+	function handleSeekBeat(_beatId: string, startMs: number) {
+		editor.seekTo(startMs);
+	}
 
 	import ArrowLeftIcon from "@lucide/svelte/icons/arrow-left";
 	import FileVideoIcon from "@lucide/svelte/icons/file-video";
@@ -99,114 +106,117 @@
 				<Resizable.PaneGroup direction="horizontal" class="h-full">
 					<Resizable.Pane defaultSize={25} minSize={15} maxSize={40}>
 						<aside class="flex h-full flex-col overflow-hidden border-r border-snip-border bg-snip-surface">
-							<div class="flex min-h-0 flex-1 flex-col overflow-y-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-								{#if editor.isBusy}
+							{#if editor.isBusy}
+								<div class="flex min-h-0 flex-1 flex-col overflow-y-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
 									<div transition:fade={{ duration: 180 }} class="flex flex-shrink-0 flex-col">
 										<SnipAIPanel />
 									</div>
-								{:else}
-									<div transition:fade={{ duration: 180 }} class="flex flex-shrink-0 flex-col">
-										<CutSettingsPanel />
-									</div>
-
-									{#if editor.swappableBeatGroups.length > 0}
-										<div class="border-t border-snip-border"></div>
-
-										<div transition:fade={{ duration: 180 }} class="flex flex-shrink-0 flex-col">
-											<BeatSwapPanel />
-										</div>
-									{/if}
-								{/if}
-
-								<div class="border-t border-snip-border"></div>
-
-								<div class="min-h-0 flex-1">
-									{#if editor.filteredCutSegments.length > 0}
-										<div class="flex flex-shrink-0 items-center justify-between border-b border-snip-border px-4 py-[7px]">
-											<div class="flex items-center">
-												<Button
-													variant="ghost"
-													size="sm"
-													onclick={() => editor.selectAllCuts()}
-													class="h-auto px-2 py-1 text-[11px] text-snip-text-secondary hover:bg-transparent hover:text-white"
-												>
-													Select all
-												</Button>
-												<span class="text-[11px] text-snip-text-muted">·</span>
-												<Button
-													variant="ghost"
-													size="sm"
-													onclick={() => editor.clearSelectedCuts()}
-													class="h-auto px-2 py-1 text-[11px] text-snip-text-secondary hover:bg-transparent hover:text-white"
-												>
-													Deselect
-												</Button>
-											</div>
-											<span class="text-[11px] text-snip-text-muted">{editor.selectedCutIds.length} selected</span>
-										</div>
-
-										{#each editor.filteredCutSegments as segment (segment.id)}
+								</div>
+							{:else}
+								<!-- Tab bar -->
+								<div class="flex-shrink-0 border-b border-snip-border px-3 pt-2.5 pb-2">
+									<div class="flex rounded-lg bg-snip-bg p-0.5">
+										{#each [
+											{ id: "script" as const, label: "Script" },
+											{ id: "cuts" as const, label: "Cuts" },
+											{ id: "settings" as const, label: "Settings" },
+										] as tab (tab.id)}
 											<button
-												type="button"
-												class="group flex w-full items-center gap-3 px-4 py-[10px] text-left transition-colors hover:bg-snip-surface-elevated"
-												onclick={() => editor.toggleCutSelection(segment.id)}
+												onclick={() => (sidebarTab = tab.id)}
+												class="flex-1 py-1.5 text-[11px] font-semibold rounded-md transition-all
+													{sidebarTab === tab.id
+													? 'bg-snip-surface-elevated text-white shadow-sm'
+													: 'text-snip-text-muted hover:text-snip-text-secondary'}"
 											>
-												<div class="h-8 w-0.5 flex-shrink-0 rounded-full" style={`background:${segment.color}`}></div>
-												<Checkbox
-													checked={editor.selectedCutIds.includes(segment.id)}
-													class="size-[14px] flex-shrink-0 rounded-[3px] border-[#333333] bg-snip-surface data-checked:border-primary data-checked:bg-primary group-hover:border-[#555555]"
-												/>
-												<div class="min-w-0 flex-1">
-													<div class="flex items-center justify-between gap-2">
-														<span class="truncate text-[12px] font-medium text-white">{segment.label}</span>
-														<span class="flex-shrink-0 text-[10px] text-snip-text-muted">
-															{editor.formatSegmentDuration(segment.durationMs)}
-														</span>
-													</div>
-													<span class="font-mono text-[10px] text-snip-text-secondary">
-														{editor.formatTimestamp(segment.start)}
-													</span>
-												</div>
-												<div class="flex flex-shrink-0 items-center gap-px">
-													{#each editor.miniBarHeights(segment) as height, index (`mini-bar-${segment.id}-${index}`)}
-														<div
-															class="w-px rounded-full bg-[#2a2a2a] transition-colors group-hover:bg-[#3a3a3a]"
-															style={`height:${height + index % 2}px;`}
-														></div>
-													{/each}
-												</div>
+												{tab.label}
+												{#if tab.id === "cuts" && editor.filteredCutSegments.length > 0}
+													<span class="ml-1 text-[10px] opacity-50">{editor.filteredCutSegments.length}</span>
+												{/if}
 											</button>
 										{/each}
-									{:else if editor.isBusy}
-										<div>
-											{#each Array.from({ length: 6 }) as _, index (`cut-skeleton-${index}`)}
-												<div class="flex items-center gap-3 px-4 py-[10px]">
-													<Skeleton class="h-8 w-0.5 flex-shrink-0 rounded-full bg-white/15" />
-													<Skeleton class="size-[14px] flex-shrink-0 rounded-[3px] bg-white/8" />
-													<div class="min-w-0 flex-1 space-y-2">
+									</div>
+								</div>
+
+								<!-- Tab content -->
+								<div class="flex min-h-0 flex-1 flex-col overflow-y-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+									{#if sidebarTab === "script"}
+										<ScriptPanel onSeekBeat={handleSeekBeat} />
+
+										{#if editor.swappableBeatGroups.length > 0}
+											<div class="border-t border-snip-border"></div>
+											<BeatSwapPanel />
+										{/if}
+
+									{:else if sidebarTab === "cuts"}
+										{#if editor.filteredCutSegments.length > 0}
+											<div class="flex flex-shrink-0 items-center justify-between border-b border-snip-border px-4 py-[7px]">
+												<div class="flex items-center">
+													<Button
+														variant="ghost"
+														size="sm"
+														onclick={() => editor.selectAllCuts()}
+														class="h-auto px-2 py-1 text-[11px] text-snip-text-secondary hover:bg-transparent hover:text-white"
+													>
+														Select all
+													</Button>
+													<span class="text-[11px] text-snip-text-muted">·</span>
+													<Button
+														variant="ghost"
+														size="sm"
+														onclick={() => editor.clearSelectedCuts()}
+														class="h-auto px-2 py-1 text-[11px] text-snip-text-secondary hover:bg-transparent hover:text-white"
+													>
+														Deselect
+													</Button>
+												</div>
+												<span class="text-[11px] text-snip-text-muted">{editor.selectedCutIds.length} selected</span>
+											</div>
+
+											{#each editor.filteredCutSegments as segment (segment.id)}
+												<button
+													type="button"
+													class="group flex w-full items-center gap-3 px-4 py-[10px] text-left transition-colors hover:bg-snip-surface-elevated"
+													onclick={() => editor.toggleCutSelection(segment.id)}
+												>
+													<div class="h-8 w-0.5 flex-shrink-0 rounded-full" style={`background:${segment.color}`}></div>
+													<Checkbox
+														checked={editor.selectedCutIds.includes(segment.id)}
+														class="size-[14px] flex-shrink-0 rounded-[3px] border-[#333333] bg-snip-surface data-checked:border-primary data-checked:bg-primary group-hover:border-[#555555]"
+													/>
+													<div class="min-w-0 flex-1">
 														<div class="flex items-center justify-between gap-2">
-															<Skeleton class={`h-3 rounded bg-white/${index % 2 === 0 ? "10" : "14"}`} style={`width:${50 + (index % 3) * 20}%`} />
-															<Skeleton class="h-2.5 w-8 flex-shrink-0 rounded bg-white/8" />
+															<span class="truncate text-[12px] font-medium text-white">{segment.label}</span>
+															<span class="flex-shrink-0 text-[10px] text-snip-text-muted">
+																{editor.formatSegmentDuration(segment.durationMs)}
+															</span>
 														</div>
-														<Skeleton class="h-2 w-16 rounded bg-white/6" />
+														<span class="font-mono text-[10px] text-snip-text-secondary">
+															{editor.formatTimestamp(segment.start)}
+														</span>
 													</div>
 													<div class="flex flex-shrink-0 items-center gap-px">
-														{#each Array.from({ length: 8 }) as _, barIdx (`skeleton-bar-${index}-${barIdx}`)}
-															<Skeleton class="w-px rounded-full bg-white/6" style={`height:${6 + (barIdx % 3) * 3}px`} />
+														{#each editor.miniBarHeights(segment) as height, index (`mini-bar-${segment.id}-${index}`)}
+															<div
+																class="w-px rounded-full bg-[#2a2a2a] transition-colors group-hover:bg-[#3a3a3a]"
+																style={`height:${height + index % 2}px;`}
+															></div>
 														{/each}
 													</div>
-												</div>
+												</button>
 											{/each}
-										</div>
-									{:else}
-										<div class="px-4 py-8 text-sm text-snip-text-secondary">
-											{editor.selectedFile
-												? "No filler, pauses, or retakes remain in the active composition."
-												: "Upload a file to populate detected filler words, pauses, and retakes."}
-										</div>
+										{:else}
+											<div class="px-4 py-8 text-sm text-snip-text-secondary">
+												{editor.selectedFile
+													? "No filler, pauses, or retakes remain in the active composition."
+													: "Upload a file to populate detected filler words, pauses, and retakes."}
+											</div>
+										{/if}
+
+									{:else if sidebarTab === "settings"}
+										<CutSettingsPanel />
 									{/if}
 								</div>
-							</div>
+							{/if}
 						</aside>
 					</Resizable.Pane>
 
@@ -272,7 +282,7 @@
 								>
 									<div class="flex items-center justify-between gap-2">
 										<span class="truncate font-mono text-[9px] uppercase tracking-[0.16em] text-snip-text-muted">
-											{block.beatId}
+											{block.beatId.replace(/^beat_/, "Beat ")}
 										</span>
 										<span class="truncate text-[10px] text-snip-text-secondary">
 											{block.activeLabel}

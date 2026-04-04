@@ -9,6 +9,11 @@
 	function selectedVariantId(beatId: string, variants: { id: string }[]): string {
 		return editor.selectedBeatVariantIds[beatId] ?? variants[0]?.id ?? "";
 	}
+
+	function humanizeBeatId(beatId: string): string {
+		const num = beatId.replace(/^beat_/, "");
+		return `Beat ${num}`;
+	}
 </script>
 
 <div class="flex flex-col overflow-y-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
@@ -57,7 +62,7 @@
 							{groupIndex + 1}
 						</span>
 						<Badge variant="outline" class="border-snip-border bg-snip-surface font-mono text-[10px] text-snip-text-muted px-1.5 py-0">
-							{group.beatId}
+							{humanizeBeatId(group.beatId)}
 						</Badge>
 						{#if hasAlts}
 							<span class="ml-auto text-[10px] text-primary font-medium">
@@ -78,7 +83,7 @@
 						<div
 							class="flex flex-wrap gap-1.5"
 							role="group"
-							aria-label="Take selection for {group.beatId}"
+							aria-label="Take selection for {humanizeBeatId(group.beatId)}"
 						>
 							{#each group.variants as variant (variant.id)}
 								<button

@@ -1,6 +1,11 @@
 <script lang="ts">
 	import { Badge } from "$lib/components/ui/badge";
 	import { videoEditorState as editor } from "$lib/stores/video-editor.svelte";
+
+	function humanizeBeatId(beatId: string): string {
+		const num = beatId.replace(/^beat_/, "");
+		return `Beat ${num}`;
+	}
 </script>
 
 {#if editor.swappableBeatGroups.length > 0}
@@ -28,7 +33,7 @@
 				<div class="rounded-xl border border-snip-border bg-snip-surface-elevated p-3">
 					<div class="flex flex-wrap items-center gap-2">
 						<Badge variant="outline" class="border-snip-border bg-snip-surface font-mono text-snip-text-primary">
-							{group.beatId}
+							{humanizeBeatId(group.beatId)}
 						</Badge>
 						<span class="text-[11px] text-snip-text-muted">
 							{group.variants.length} take options
