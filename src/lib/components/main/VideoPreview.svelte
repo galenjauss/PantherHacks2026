@@ -22,8 +22,8 @@
 
 <div class="flex min-h-0 flex-1 flex-col bg-snip-bg">
 	<div class="flex min-h-0 flex-1 items-center justify-center overflow-hidden p-8">
-		<div class="relative flex max-h-full w-full items-center justify-center">
-			<div class="relative w-full max-h-full aspect-video overflow-hidden rounded-[20px] border border-snip-border bg-black/70 shadow-[0_40px_120px_rgba(0,0,0,0.35)]">
+		<div class="relative flex h-full w-full items-center justify-center">
+			<div class="relative aspect-video max-h-full max-w-full overflow-hidden rounded-[20px] border border-snip-border bg-black/70 shadow-[0_40px_120px_rgba(0,0,0,0.35)]">
 				{#if editor.videoUrl}
 					<video
 						bind:this={videoEl}

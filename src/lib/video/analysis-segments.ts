@@ -6,6 +6,8 @@ import type {
 export interface AnalysisWordLabel {
 	index: number;
 	category: "good" | "filler_words" | "retake";
+	takeId?: string | null;
+	beatId?: string | null;
 }
 
 export interface AnalysisSegmentOptions {
@@ -42,16 +44,19 @@ export function buildAnalysisSegments(
 	labels: AnalysisWordLabel[],
 	options: AnalysisSegmentOptions
 ): AutocutAnalysisSegment[] {
-	const labelMap = new Map<number, AnalysisWordLabel["category"]>();
+	const labelMap = new Map<number, AnalysisWordLabel>();
 	for (const label of labels) {
-		labelMap.set(label.index, label.category);
+		labelMap.set(label.index, label);
 	}
 
 	const segments: AutocutAnalysisSegment[] = [];
 
 	for (let i = 0; i < words.length; i++) {
 		const word = words[i];
-		const category = labelMap.get(i) ?? "good";
+		const label = labelMap.get(i);
+		const category = label?.category ?? "good";
+		const takeId = label?.takeId ?? null;
+		const beatId = label?.beatId ?? null;
 
 		if (i > 0) {
 			const prevEnd = words[i - 1].end;
@@ -73,7 +78,12 @@ export function buildAnalysisSegments(
 		}
 
 		const last = segments[segments.length - 1];
-		if (last && last.category === category) {
+		if (
+			last &&
+			last.category === category &&
+			(last.takeId ?? null) === takeId &&
+			(last.beatId ?? null) === beatId
+		) {
 			last.end = word.end;
 			last.text += " " + word.text;
 		} else {
@@ -81,7 +91,9 @@ export function buildAnalysisSegments(
 				start: word.start,
 				end: word.end,
 				category,
-				text: word.text
+				text: word.text,
+				takeId,
+				beatId
 			});
 		}
 	}

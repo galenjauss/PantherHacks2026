@@ -21,6 +21,7 @@ interface WordLabel {
 	index: number;
 	category: WordLabelCategory;
 	takeId?: string | null;
+	beatId?: string | null;
 }
 
 interface SegmentMeta {
@@ -40,21 +41,87 @@ export interface EditorCutSegment extends Omit<AutocutAnalysisSegment, "category
 	color: string;
 }
 
+interface AnalysisSegmentRef {
+	id: string;
+	index: number;
+	segment: AutocutAnalysisSegment;
+}
+
+interface BeatVariantAggregate {
+	beatId: string;
+	takeId: string;
+	refs: AnalysisSegmentRef[];
+	goodRefs: AnalysisSegmentRef[];
+	retakeRefs: AnalysisSegmentRef[];
+}
+
+interface EditorBeatVariant {
+	id: string;
+	beatId: string;
+	takeId: string;
+	label: string;
+	kind: "good" | "retake";
+	start: number;
+	end: number;
+	durationMs: number;
+	previewText: string;
+	fillerCount: number;
+	refs: AnalysisSegmentRef[];
+	playableRefs: AnalysisSegmentRef[];
+}
+
+interface EditorBeatGroup {
+	beatId: string;
+	start: number;
+	end: number;
+	variants: EditorBeatVariant[];
+}
+
+interface EditorClipStripBeatBlock {
+	id: string;
+	beatId: string;
+	widthPct: number;
+	activeLabel: string;
+	variants: Array<
+		Pick<EditorBeatVariant, "id" | "label" | "kind" | "durationMs" | "start"> & {
+			isSelected: boolean;
+			fillPct: number;
+		}
+	>;
+}
+
+export interface EditedTimelineBlock {
+	id: string;
+	kind: "beat" | "gap" | "cut";
+	beatId: string | null;
+	label: string;
+	humanLabel: string;
+	durationMs: number;
+	widthPct: number;
+	color: string;
+	startMs: number;
+}
+
+const BEAT_COLORS = [
+	"#7c3aed", "#3b82f6", "#06b6d4", "#10b981", "#f59e0b",
+	"#ef4444", "#ec4899", "#8b5cf6", "#14b8a6", "#f97316"
+];
+
 const SEGMENT_META: Record<EditorCutCategory, SegmentMeta> = {
 	filler_words: {
 		label: "Filler words",
 		shortLabel: "Filler",
-		color: "#f97316"
+		color: "#ef4444"
 	},
 	dead_space: {
 		label: "Dead pauses",
 		shortLabel: "Pause",
-		color: "#3b82f6"
+		color: "#6b7280"
 	},
 	retake: {
 		label: "Retakes",
 		shortLabel: "Retake",
-		color: "#22c55e"
+		color: "#3b82f6"
 	}
 };
 
@@ -67,8 +134,8 @@ function clamp(value: number, min: number, max: number): number {
 	return Math.min(max, Math.max(min, value));
 }
 
-function segmentId(segment: AutocutAnalysisSegment, index: number): string {
-	return `${segment.category}:${segment.takeId ?? "none"}:${segment.start}:${segment.end}:${index}`;
+function segmentId(index: number): string {
+	return `segment:${index}`;
 }
 
 function humanizeSegmentText(segment: AutocutAnalysisSegment): string {
@@ -113,6 +180,144 @@ function buildPlaybackSegments(segments: AutocutAnalysisSegment[]): AutocutAnaly
 	return merged;
 }
 
+function buildAnalysisSegmentRefs(segments: AutocutAnalysisSegment[]): AnalysisSegmentRef[] {
+	return segments.map((segment, index) => ({
+		id: segmentId(index),
+		index,
+		segment
+	}));
+}
+
+function variantBaseId(beatId: string, takeId: string): string {
+	return `${beatId}::${takeId}`;
+}
+
+function humanizeId(id: string, prefix: string): string {
+	const num = id.replace(new RegExp(`^${prefix}_`), "");
+	return `${prefix.charAt(0).toUpperCase()}${prefix.slice(1)} ${num}`;
+}
+
+function humanizeBeatId(beatId: string): string {
+	return humanizeId(beatId, "beat");
+}
+
+function humanizeTakeId(takeId: string): string {
+	return humanizeId(takeId, "take");
+}
+
+function variantPreviewText(refs: AnalysisSegmentRef[]): string {
+	const text = refs
+		.map((ref) => ref.segment.text.trim())
+		.filter(Boolean)
+		.join(" ");
+
+	return text || "—";
+}
+
+function buildBeatGroups(refs: AnalysisSegmentRef[]): EditorBeatGroup[] {
+	const groups = new Map<string, { beatId: string; variants: BeatVariantAggregate[] }>();
+
+	for (const ref of refs) {
+		const { beatId, takeId, category } = ref.segment;
+		if (!beatId || !takeId || category === "dead_space") continue;
+
+		const beatGroup = groups.get(beatId) ?? {
+			beatId,
+			variants: []
+		};
+
+		let aggregate = beatGroup.variants.find((item) => item.takeId === takeId);
+		if (!aggregate) {
+			aggregate = {
+				beatId,
+				takeId,
+				refs: [],
+				goodRefs: [],
+				retakeRefs: []
+			};
+			beatGroup.variants.push(aggregate);
+		}
+
+		aggregate.refs.push(ref);
+		if (category === "good") {
+			aggregate.goodRefs.push(ref);
+		} else if (category === "retake") {
+			aggregate.retakeRefs.push(ref);
+		}
+
+		groups.set(beatId, beatGroup);
+	}
+
+	return [...groups.values()]
+		.map((group) => {
+			const variants = group.variants
+				.flatMap((aggregate) => {
+					const refsByTime = [...aggregate.refs].sort(
+						(left, right) => left.segment.start - right.segment.start
+					);
+					const goodRefs = [...aggregate.goodRefs].sort(
+						(left, right) => left.segment.start - right.segment.start
+					);
+					const retakeRefs = [...aggregate.retakeRefs].sort(
+						(left, right) => left.segment.start - right.segment.start
+					);
+
+					const buildVariant = (
+						kind: EditorBeatVariant["kind"],
+						playableRefs: AnalysisSegmentRef[],
+						label: string
+					): EditorBeatVariant | null => {
+						if (playableRefs.length === 0) return null;
+
+						const start = playableRefs[0].segment.start;
+						const end = playableRefs[playableRefs.length - 1].segment.end;
+						const rangeRefs = refsByTime.filter(
+							(ref) => ref.segment.start >= start && ref.segment.end <= end
+						);
+
+						return {
+							id: `${variantBaseId(aggregate.beatId, aggregate.takeId)}::${kind}`,
+							beatId: aggregate.beatId,
+							takeId: aggregate.takeId,
+							label,
+							kind,
+							start,
+							end,
+							durationMs: Math.max(end - start, 0),
+							previewText: variantPreviewText(playableRefs),
+							fillerCount: rangeRefs.filter(
+								(ref) => ref.segment.category === "filler_words"
+							).length,
+							refs: rangeRefs,
+							playableRefs
+						};
+					};
+
+					const takeName = humanizeTakeId(aggregate.takeId);
+					const builtVariants = [
+						buildVariant(
+							"good",
+							goodRefs,
+							retakeRefs.length > 0 ? takeName : takeName
+						),
+						buildVariant("retake", retakeRefs, `${takeName} (retake)`)
+					].filter((variant): variant is EditorBeatVariant => Boolean(variant));
+
+					return builtVariants;
+				})
+				.sort((left, right) => left.start - right.start);
+
+			return {
+				beatId: group.beatId,
+				start: Math.min(...variants.map((variant) => variant.start)),
+				end: Math.max(...variants.map((variant) => variant.end)),
+				variants
+			} satisfies EditorBeatGroup;
+		})
+		.filter((group) => group.variants.length > 0)
+		.sort((left, right) => left.start - right.start);
+}
+
 class VideoEditorState {
 	selectedFile = $state<File | null>(null);
 	videoUrl = $state<string | null>(null);
@@ -123,6 +328,7 @@ class VideoEditorState {
 	currentPreviewSegmentIndex = $state(0);
 	activeFilter = $state<EditorFilter>("all");
 	selectedCutIds = $state<string[]>([]);
+	selectedBeatVariantIds = $state<Record<string, string>>({});
 	deadSpaceThreshold = $state(DEFAULT_ANALYSIS_SEGMENT_OPTIONS.deadSpaceThresholdMs);
 	clipEndTrim = $state(DEFAULT_ANALYSIS_SEGMENT_OPTIONS.clipEndTrimMs);
 	cutToggles = $state<Record<EditorCutCategory, boolean>>({
@@ -149,6 +355,7 @@ class VideoEditorState {
 	private activeJobSyncToken = 0;
 	private lastSyncSignature = "";
 	private lastSelectionSignature = "";
+	private lastBeatSelectionSignature = "";
 	private previewTimeUpdateHandler: (() => void) | null = null;
 	private previewEndedHandler: (() => void) | null = null;
 	private videoElement: HTMLVideoElement | null = null;
@@ -264,8 +471,98 @@ class VideoEditorState {
 		});
 	}
 
+	get analysisSegmentRefs(): AnalysisSegmentRef[] {
+		return buildAnalysisSegmentRefs(this.analysisSegments);
+	}
+
+	get beatGroups(): EditorBeatGroup[] {
+		return buildBeatGroups(this.analysisSegmentRefs);
+	}
+
+	get swappableBeatGroups(): EditorBeatGroup[] {
+		return this.beatGroups.filter((group) => group.variants.length > 1);
+	}
+
+	get swappableBeatCount(): number {
+		return this.swappableBeatGroups.length;
+	}
+
+	get beatSelectionSignature(): string {
+		return this.beatGroups
+			.map((group) => `${group.beatId}:${group.variants.map((variant) => variant.id).join(",")}`)
+			.join("|");
+	}
+
+	get composedSegmentRefs(): AnalysisSegmentRef[] {
+		const refs = this.analysisSegmentRefs;
+		const beatGroups = buildBeatGroups(refs);
+
+		if (beatGroups.length === 0) {
+			return refs;
+		}
+
+		const groupByBeatId = new Map(beatGroups.map((group) => [group.beatId, group]));
+		const units: Array<{ sortStart: number; sortIndex: number; refs: AnalysisSegmentRef[] }> = [];
+
+		for (const [sortIndex, group] of beatGroups.entries()) {
+			const variant = this.selectedVariantForGroup(group);
+			if (!variant) continue;
+
+			units.push({
+				sortStart: group.start,
+				sortIndex,
+				refs: [...variant.refs].sort(
+					(left, right) => left.segment.start - right.segment.start
+				)
+			});
+		}
+
+		for (const ref of refs) {
+			const beatId = ref.segment.beatId;
+			if (beatId && groupByBeatId.has(beatId)) continue;
+
+			units.push({
+				sortStart: ref.segment.start,
+				sortIndex: beatGroups.length + ref.index,
+				refs: [ref]
+			});
+		}
+
+		return units
+			.sort(
+				(left, right) =>
+					left.sortStart - right.sortStart || left.sortIndex - right.sortIndex
+			)
+			.flatMap((unit) => unit.refs);
+	}
+
+	get baseComposedAnalysisSegments(): AutocutAnalysisSegment[] {
+		const playableRefIds = new Set(
+			this.beatGroups.flatMap(
+				(group) => this.selectedVariantForGroup(group)?.playableRefs.map((ref) => ref.id) ?? []
+			)
+		);
+
+		return this.composedSegmentRefs.map((ref) => {
+			if (
+				playableRefIds.has(ref.id) &&
+				ref.segment.category === "retake"
+			) {
+				return {
+					...ref.segment,
+					category: "good" as const
+				};
+			}
+
+			return ref.segment;
+		});
+	}
+
 	get cutSegments(): EditorCutSegment[] {
-		return this.analysisSegments
+		const composedRefs = this.composedSegmentRefs;
+		const baseSegments = this.baseComposedAnalysisSegments;
+
+		return baseSegments
 			.map((segment, index) => {
 				if (segment.category === "good") return null;
 
@@ -273,7 +570,7 @@ class VideoEditorState {
 				const meta = SEGMENT_META[category];
 				return {
 					...segment,
-					id: segmentId(segment, index),
+					id: composedRefs[index]?.id ?? segmentId(index),
 					category,
 					durationMs: Math.max(segment.end - segment.start, 0),
 					label: humanizeSegmentText(segment),
@@ -330,14 +627,22 @@ class VideoEditorState {
 			return "Counts and recommendations appear here once the transcript and labels are ready.";
 		}
 
+		const swapText =
+			this.swappableBeatCount > 0
+				? `${this.swappableBeatCount} beat${this.swappableBeatCount === 1 ? " has" : "s have"} alternate takes available to swap. `
+				: "";
+
 		if (this.cutSegments.length === 0) {
-			return "No removable filler, pauses, or retakes were detected in the current cut plan.";
+			return (
+				swapText ||
+				"No removable filler, pauses, or retakes were detected in the current cut plan."
+			);
 		}
 
 		const dominant = [...this.analysisStats].sort((a, b) => b.durationMs - a.durationMs)[0];
-		return `${dominant.label} is the largest cleanup opportunity right now. Current selections remove ${this.formatDuration(
+		return `${swapText}${dominant.label} is the largest cleanup opportunity right now. Current selections remove ${this.formatDuration(
 			this.selectedCutDurationMs
-		)} across ${this.selectedCutCount} segments.`;
+		)} across ${this.selectedCutCount} segments and land at ${this.formatClock(this.cleanDurationMs)} clean runtime.`;
 	}
 
 	get selectionSignature(): string {
@@ -357,19 +662,24 @@ class VideoEditorState {
 			fileLastModified: file.lastModified,
 			transcriptId: this.transcriptId,
 			selectedCutIds: [...this.selectedCutIds].sort(),
+			selectedBeatVariantIds: this.beatGroups.map((group) => [
+				group.beatId,
+				this.selectedVariantForGroup(group)?.id ?? ""
+			]),
 			cutToggles: this.cutToggles,
 			deadSpaceThreshold: this.deadSpaceThreshold,
 			clipEndTrim: this.clipEndTrim
 		});
 	}
 
-	get syncedAnalysisSegments(): AutocutAnalysisSegment[] {
+	get composedAnalysisSegments(): AutocutAnalysisSegment[] {
 		const selected = new Set(this.selectedCutIds);
+		const composedRefs = this.composedSegmentRefs;
 
-		return this.analysisSegments.map((segment, index) => {
+		return this.baseComposedAnalysisSegments.map((segment, index) => {
 			if (segment.category === "good") return segment;
 
-			const id = segmentId(segment, index);
+			const id = composedRefs[index]?.id ?? segmentId(index);
 			if (this.cutToggles[segment.category] && selected.has(id)) {
 				return segment;
 			}
@@ -382,7 +692,7 @@ class VideoEditorState {
 	}
 
 	get playbackSegments(): AutocutAnalysisSegment[] {
-		return buildPlaybackSegments(this.syncedAnalysisSegments);
+		return buildPlaybackSegments(this.composedAnalysisSegments);
 	}
 
 	get selectedCutCount(): number {
@@ -402,7 +712,155 @@ class VideoEditorState {
 	}
 
 	get cleanDurationMs(): number {
-		return Math.max(this.totalDurationMs - this.selectedCutDurationMs, 0);
+		return this.playbackSegments.reduce(
+			(sum, segment) => sum + Math.max(segment.end - segment.start, 0),
+			0
+		);
+	}
+
+	get clipStripBeatBlocks(): EditorClipStripBeatBlock[] {
+		const beatGroups = this.beatGroups;
+
+		if (beatGroups.length === 0) return [];
+
+		const blocks = beatGroups.map((group) => {
+			const selectedVariant = this.selectedVariantForGroup(group);
+			const maxDurationMs = Math.max(...group.variants.map((variant) => variant.durationMs), 1);
+			const widthMs = Math.max(maxDurationMs, 600);
+
+			return {
+				id: group.beatId,
+				beatId: group.beatId,
+				activeLabel: selectedVariant?.label ?? "",
+				widthMs,
+				variants: group.variants.map((variant) => ({
+					id: variant.id,
+					label: variant.label,
+					kind: variant.kind,
+					durationMs: variant.durationMs,
+					start: variant.start,
+					isSelected: selectedVariant?.id === variant.id,
+					fillPct: clamp(Math.round((variant.durationMs / maxDurationMs) * 100), 18, 100)
+				}))
+			};
+		});
+		const totalWidthMs = blocks.reduce((sum, block) => sum + block.widthMs, 0);
+
+		return blocks.map(({ widthMs, ...block }) => ({
+			...block,
+			widthPct: Math.max((widthMs / totalWidthMs) * 100, 10)
+		}));
+	}
+
+	get editedTimelineBlocks(): EditedTimelineBlock[] {
+		const beatGroups = this.beatGroups;
+
+		if (beatGroups.length === 0) return [];
+
+		const blocks: EditedTimelineBlock[] = [];
+		const colorMap = new Map<string, string>();
+
+		for (const [index, group] of beatGroups.entries()) {
+			colorMap.set(group.beatId, BEAT_COLORS[index % BEAT_COLORS.length]);
+		}
+
+		// Build ordered beat entries with their selected variants
+		const beatEntries = beatGroups
+			.map((group, groupIndex) => {
+				const variant = this.selectedVariantForBeatId(group.beatId);
+				if (!variant) return null;
+				return { group, variant, groupIndex };
+			})
+			.filter((entry): entry is NonNullable<typeof entry> => Boolean(entry));
+
+		if (beatEntries.length === 0) return [];
+
+		// Collect cut segments between beats
+		const composedSegments = this.baseComposedAnalysisSegments;
+		let totalMs = 0;
+
+		for (let i = 0; i < beatEntries.length; i++) {
+			const entry = beatEntries[i];
+			const { group, variant } = entry;
+
+			// Add cut/gap segments that fall before this beat (after previous beat or start)
+			const prevEnd = i > 0 ? beatEntries[i - 1].variant.end : 0;
+			const gapStart = prevEnd;
+			const gapEnd = variant.start;
+
+			if (gapEnd > gapStart) {
+				// Find cuts in this gap region
+				const cutsInGap = composedSegments.filter(
+					(seg) => seg.category !== "good" && seg.start >= gapStart && seg.end <= gapEnd
+				);
+				const cutDuration = cutsInGap.reduce((sum, seg) => sum + Math.max(seg.end - seg.start, 0), 0);
+
+				if (cutDuration > 0) {
+					const cutLabel = cutsInGap.length === 1
+						? SEGMENT_META[cutsInGap[0].category as EditorCutCategory]?.shortLabel ?? "Cut"
+						: `${cutsInGap.length} cuts`;
+
+					blocks.push({
+						id: `cut-before-${group.beatId}`,
+						kind: "cut",
+						beatId: null,
+						label: cutLabel,
+						humanLabel: cutLabel,
+						durationMs: cutDuration,
+						widthPct: 0,
+						color: "#ef4444",
+						startMs: gapStart
+					});
+					totalMs += cutDuration;
+				}
+
+				const remainingGap = (gapEnd - gapStart) - cutDuration;
+				if (remainingGap > 200) {
+					blocks.push({
+						id: `gap-before-${group.beatId}`,
+						kind: "gap",
+						beatId: null,
+						label: "",
+						humanLabel: "",
+						durationMs: remainingGap,
+						widthPct: 0,
+						color: "#1a1a1a",
+						startMs: gapStart + cutDuration
+					});
+					totalMs += remainingGap;
+				}
+			}
+
+			// Add beat block
+			const text = variant.previewText;
+			const label = text.length > 20 ? text.slice(0, 19) + "…" : text;
+
+			blocks.push({
+				id: `beat-${group.beatId}`,
+				kind: "beat",
+				beatId: group.beatId,
+				label,
+				humanLabel: humanizeBeatId(group.beatId),
+				durationMs: variant.durationMs,
+				widthPct: 0,
+				color: colorMap.get(group.beatId) ?? BEAT_COLORS[0],
+				startMs: variant.start
+			});
+			totalMs += variant.durationMs;
+		}
+
+		if (totalMs <= 0) return [];
+
+		return blocks.map((block) => ({
+			...block,
+			widthPct: Math.max((block.durationMs / totalMs) * 100, block.kind === "beat" ? 3 : 1.5)
+		}));
+	}
+
+	selectedVariantForBeatId(beatId: string): EditorBeatVariant | undefined {
+		const group = this.beatGroups.find((g) => g.beatId === beatId);
+		if (!group) return undefined;
+		return this.selectedVariantForGroup(group);
 	}
 
 	get clipStripSegments() {
@@ -410,21 +868,15 @@ class VideoEditorState {
 
 		if (totalDurationMs <= 0) return [];
 
-		const selected = new Set(this.selectedCutIds);
-
-		return this.analysisSegments.map((segment, index) => {
-			const isCut =
-				segment.category !== "good" &&
-				this.cutToggles[segment.category] &&
-				selected.has(segmentId(segment, index));
+		return this.composedAnalysisSegments.map((segment, index) => {
 			const widthPct = Math.max(((segment.end - segment.start) / totalDurationMs) * 100, 0.5);
 
 			return {
-				id: segmentId(segment, index),
-				type: isCut ? segment.category : "good",
+				id: segmentId(index),
+				type: segment.category,
 				start: segment.start,
 				widthPct,
-				label: isCut ? clipStripLabel(segment) : null
+				label: segment.category === "good" ? null : clipStripLabel(segment)
 			};
 		});
 	}
@@ -518,6 +970,12 @@ class VideoEditorState {
 		return Array.from({ length: 8 }, (_, index) =>
 			clamp(base + ((wordCount + index * 2) % 7), 4, 16)
 		);
+	}
+
+	private selectedVariantForGroup(group: EditorBeatGroup): EditorBeatVariant | undefined {
+		const selectedId = this.selectedBeatVariantIds[group.beatId];
+
+		return group.variants.find((variant) => variant.id === selectedId) ?? group.variants[0];
 	}
 
 	setVideoElement(element: HTMLVideoElement | null) {
@@ -624,6 +1082,7 @@ class VideoEditorState {
 		this.previewMode = "after";
 		this.activeFilter = "all";
 		this.selectedCutIds = [];
+		this.selectedBeatVariantIds = {};
 		this.transcribing = false;
 		this.pollingTranscript = false;
 		this.analyzing = false;
@@ -642,13 +1101,30 @@ class VideoEditorState {
 			dead_space: true,
 			retake: true
 		};
+		this.lastBeatSelectionSignature = "";
 	}
 
 	syncSelectionWithSegments(signature: string) {
-		if (!signature || signature === this.lastSelectionSignature) return;
+		if (signature === this.lastSelectionSignature) return;
 
 		this.lastSelectionSignature = signature;
 		this.selectedCutIds = this.cutSegments.map((segment) => segment.id);
+	}
+
+	syncBeatSelections(signature: string) {
+		if (signature === this.lastBeatSelectionSignature) return;
+
+		this.lastBeatSelectionSignature = signature;
+		const nextSelections: Record<string, string> = {};
+
+		for (const group of this.beatGroups) {
+			const existing = this.selectedBeatVariantIds[group.beatId];
+			nextSelections[group.beatId] = group.variants.some((variant) => variant.id === existing)
+				? existing
+				: group.variants[0]?.id ?? "";
+		}
+
+		this.selectedBeatVariantIds = nextSelections;
 	}
 
 	toggleCutSelection(id: string) {
@@ -666,6 +1142,16 @@ class VideoEditorState {
 
 	clearSelectedCuts() {
 		this.selectedCutIds = [];
+	}
+
+	selectBeatVariant(beatId: string, id: string) {
+		if (this.selectedBeatVariantIds[beatId] === id) return;
+
+		this.stopPreview();
+		this.selectedBeatVariantIds = {
+			...this.selectedBeatVariantIds,
+			[beatId]: id
+		};
 	}
 
 	async maybeStartProcessing() {
@@ -706,7 +1192,7 @@ class VideoEditorState {
 				},
 				transcriptText: this.transcriptText,
 				transcriptWords: this.transcriptWords,
-				analysisSegments: this.syncedAnalysisSegments
+				analysisSegments: this.composedAnalysisSegments
 			};
 
 			const res = await fetch("/api/video/autocut", {
@@ -829,6 +1315,8 @@ class VideoEditorState {
 		this.transcriptText = "";
 		this.transcriptWords = [];
 		this.wordLabels = [];
+		this.selectedBeatVariantIds = {};
+		this.lastBeatSelectionSignature = "";
 
 		try {
 			const formData = new FormData();
