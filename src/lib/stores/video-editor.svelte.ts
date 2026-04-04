@@ -857,6 +857,55 @@ class VideoEditorState {
 		}));
 	}
 
+	/** Full uncut timeline — all segments shown at original durations for "before" preview. */
+	get beforeTimelineBlocks(): EditedTimelineBlock[] {
+		const composedSegments = this.baseComposedAnalysisSegments;
+		if (composedSegments.length === 0) return [];
+
+		const beatGroups = this.beatGroups;
+		const colorMap = new Map<string, string>();
+		for (const [index, group] of beatGroups.entries()) {
+			colorMap.set(group.beatId, BEAT_COLORS[index % BEAT_COLORS.length]);
+		}
+
+		const blocks: EditedTimelineBlock[] = [];
+		let totalMs = 0;
+
+		for (const [index, seg] of composedSegments.entries()) {
+			const durationMs = Math.max(seg.end - seg.start, 0);
+			if (durationMs <= 0) continue;
+
+			const isGood = seg.category === "good";
+			const beatId = seg.beatId ?? null;
+
+			blocks.push({
+				id: `before-${index}`,
+				kind: isGood ? "beat" : "cut",
+				beatId,
+				label: isGood
+					? (beatId ? humanizeBeatId(beatId) : "Keep")
+					: (SEGMENT_META[seg.category as EditorCutCategory]?.shortLabel ?? seg.category),
+				humanLabel: isGood
+					? (beatId ? humanizeBeatId(beatId) : "")
+					: "",
+				durationMs,
+				widthPct: 0,
+				color: isGood
+					? (beatId ? (colorMap.get(beatId) ?? BEAT_COLORS[0]) : "#22c55e")
+					: "#ef4444",
+				startMs: seg.start
+			});
+			totalMs += durationMs;
+		}
+
+		if (totalMs <= 0) return [];
+
+		return blocks.map((block) => ({
+			...block,
+			widthPct: Math.max((block.durationMs / totalMs) * 100, 1.5)
+		}));
+	}
+
 	selectedVariantForBeatId(beatId: string): EditorBeatVariant | undefined {
 		const group = this.beatGroups.find((g) => g.beatId === beatId);
 		if (!group) return undefined;

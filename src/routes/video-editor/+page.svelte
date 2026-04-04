@@ -1,14 +1,15 @@
 <script lang="ts">
-	import { fade } from "svelte/transition";
+	import { fade, fly } from "svelte/transition";
 	import favicon from "$lib/assets/favicon.svg";
 	import { Skeleton } from "$lib/components/ui/skeleton";
 	import { Checkbox } from "$lib/components/ui/checkbox";
 	import { Button } from "$lib/components/ui/button";
 	import * as Resizable from "$lib/components/ui/resizable";
+	import AnimatedNumber from "$lib/components/ui/AnimatedNumber.svelte";
 
 	import SnipAIPanel from "$lib/components/sidebar/SnipAIPanel.svelte";
 	import CutSettingsPanel from "$lib/components/sidebar/CutSettingsPanel.svelte";
-import ScriptPanel from "$lib/components/sidebar/ScriptPanel.svelte";
+	import ScriptPanel from "$lib/components/sidebar/ScriptPanel.svelte";
 	import VideoPreview from "$lib/components/main/VideoPreview.svelte";
 	import { videoEditorState as editor } from "$lib/stores/video-editor.svelte";
 
@@ -18,7 +19,6 @@ import ScriptPanel from "$lib/components/sidebar/ScriptPanel.svelte";
 		editor.seekTo(startMs);
 	}
 
-	import FileVideoIcon from "@lucide/svelte/icons/file-video";
 	import ScissorsIcon from "@lucide/svelte/icons/scissors";
 	import UploadIcon from "@lucide/svelte/icons/upload";
 
@@ -78,18 +78,17 @@ import ScriptPanel from "$lib/components/sidebar/ScriptPanel.svelte";
 			<span class="font-display text-base font-bold tracking-wide text-white">Snip</span>
 		</a>
 
-		<!-- Filename + inline upload -->
-		<div class="ml-4 hidden items-center gap-2 text-sm text-snip-text-secondary md:flex">
-			<FileVideoIcon class="size-4 shrink-0" stroke-width={1.75} />
-			<span class="max-w-[240px] truncate">{editor.selectedFile?.name ?? "No file loaded"}</span>
-			<button
-				type="button"
-				class="ml-1 flex size-7 items-center justify-center rounded-lg text-snip-text-muted transition-colors hover:bg-snip-surface-elevated hover:text-white"
-				title="Replace file"
+		<!-- Upload button -->
+		<div class="ml-auto hidden md:flex">
+			<Button
+				variant="outline"
+				size="sm"
+				class="border-snip-border bg-snip-surface text-snip-text-primary transition-transform hover:scale-[1.03] hover:bg-snip-surface-elevated active:scale-95"
 				onclick={() => topBarFileInput?.click()}
 			>
-				<UploadIcon class="size-3.5" stroke-width={2} />
-			</button>
+				<UploadIcon class="mr-1.5 size-3.5" stroke-width={2} />
+				<span class="font-display text-xs font-semibold">{editor.selectedFile ? "New Upload" : "Upload"}</span>
+			</Button>
 			<input
 				bind:this={topBarFileInput}
 				type="file"
@@ -109,17 +108,12 @@ import ScriptPanel from "$lib/components/sidebar/ScriptPanel.svelte";
 							<!-- Hero stats — single source of truth -->
 							{#if editor.totalDurationMs > 0}
 								{@const savedPct = editor.totalDurationMs > 0 ? Math.round((editor.selectedCutDurationMs / editor.totalDurationMs) * 100) : 0}
-								<div class="flex-shrink-0 border-b border-snip-border px-4 py-3">
-									<div class="flex items-baseline gap-2">
-										<span class="font-display text-2xl font-bold text-primary">
-											{editor.formatDuration(editor.selectedCutDurationMs)} saved
-										</span>
-										<span class="font-display text-lg font-semibold text-snip-text-secondary">
-											{savedPct}%
-										</span>
-									</div>
-									<p class="mt-0.5 text-[12px] text-snip-text-secondary">
-										{editor.selectedCutCount} cuts · {editor.formatClock(editor.cleanDurationMs)} clean runtime
+								<div class="flex-shrink-0 border-b border-snip-border px-5 py-5">
+									<span class="font-display text-3xl font-extrabold text-primary">
+										<AnimatedNumber value={editor.selectedCutDurationMs} format={(ms) => editor.formatDuration(ms)} /> saved
+									</span>
+									<p class="mt-1.5 text-[12px] font-medium text-snip-text-secondary">
+										<AnimatedNumber value={savedPct} format={(n) => `${Math.round(n)}%`} /> shorter · {editor.selectedCutCount} cuts · {editor.formatClock(editor.cleanDurationMs)} clean
 									</p>
 								</div>
 							{/if}
@@ -132,18 +126,25 @@ import ScriptPanel from "$lib/components/sidebar/ScriptPanel.svelte";
 								</div>
 							{:else}
 								<!-- Tab bar -->
-								<div class="flex-shrink-0 border-b border-snip-border px-3 pt-2.5 pb-2">
-									<div class="flex rounded-lg bg-snip-bg p-0.5">
-										{#each [
-											{ id: "script" as const, label: "Script" },
-											{ id: "cuts" as const, label: "Cuts" },
-											{ id: "settings" as const, label: "Settings" },
-										] as tab (tab.id)}
+								{@const tabs = [
+									{ id: "script" as const, label: "Script" },
+									{ id: "cuts" as const, label: "Cuts" },
+									{ id: "settings" as const, label: "Settings" },
+								]}
+								{@const activeIndex = tabs.findIndex(t => t.id === sidebarTab)}
+								<div class="shrink-0 border-b border-snip-border px-3 pt-2.5 pb-2">
+									<div class="relative flex rounded-lg bg-snip-bg p-0.5">
+										<!-- Sliding indicator -->
+										<div
+											class="absolute top-0.5 bottom-0.5 rounded-md bg-snip-surface-elevated shadow-sm transition-all duration-250 ease-[cubic-bezier(0.25,1,0.5,1)]"
+											style="width:{100 / tabs.length}%;left:{(activeIndex * 100) / tabs.length}%;"
+										></div>
+										{#each tabs as tab (tab.id)}
 											<button
 												onclick={() => (sidebarTab = tab.id)}
-												class="font-display flex-1 py-1.5 text-[11px] font-semibold rounded-md transition-all
+												class="font-display relative z-10 flex-1 py-1.5 text-[11px] font-semibold rounded-md transition-colors
 													{sidebarTab === tab.id
-													? 'bg-snip-surface-elevated text-white shadow-sm'
+													? 'text-white'
 													: 'text-snip-text-muted hover:text-snip-text-secondary'}"
 											>
 												{tab.label}
@@ -185,10 +186,11 @@ import ScriptPanel from "$lib/components/sidebar/ScriptPanel.svelte";
 												<span class="text-[11px] text-snip-text-muted">{editor.selectedCutIds.length} selected</span>
 											</div>
 
-											{#each editor.filteredCutSegments as segment (segment.id)}
+											{#each editor.filteredCutSegments as segment, i (segment.id)}
 												<button
 													type="button"
 													class="group flex w-full items-center gap-3 px-4 py-[10px] text-left transition-colors hover:bg-snip-surface-elevated"
+													in:fly={{ x: -20, duration: 250, delay: Math.min(i * 40, 400) }}
 													onclick={() => editor.toggleCutSelection(segment.id)}
 												>
 													<div class="h-8 w-0.5 flex-shrink-0 rounded-full" style={`background:${segment.color}`}></div>
@@ -233,7 +235,7 @@ import ScriptPanel from "$lib/components/sidebar/ScriptPanel.svelte";
 						</aside>
 					</Resizable.Pane>
 
-					<Resizable.Handle withHandle class="bg-snip-border" />
+					<Resizable.Handle withHandle class="bg-snip-border [&>div]:h-10 [&>div]:w-[5px] [&>div]:rounded-full [&>div]:bg-white/20 hover:[&>div]:bg-white/40 [&>div]:transition-colors" />
 
 					<Resizable.Pane defaultSize={75} minSize={40}>
 						<main class="relative flex h-full min-w-0 flex-col overflow-hidden bg-snip-bg">
@@ -244,10 +246,10 @@ import ScriptPanel from "$lib/components/sidebar/ScriptPanel.svelte";
 			</div>
 		</Resizable.Pane>
 
-		<Resizable.Handle withHandle class="bg-snip-border" />
+		<Resizable.Handle withHandle class="bg-snip-border [&[data-direction=vertical]>div]:rotate-0 [&[data-direction=vertical]>div]:h-[5px] [&[data-direction=vertical]>div]:w-10 [&[data-direction=vertical]>div]:rounded-full [&[data-direction=vertical]>div]:bg-white/20 hover:[&[data-direction=vertical]>div]:bg-white/40 [&[data-direction=vertical]>div]:transition-colors" />
 
 		<Resizable.Pane defaultSize={20} minSize={8} maxSize={50}>
-			<div class="flex h-full flex-col border-t border-snip-border bg-snip-surface">
+			<div class="flex h-full flex-col border-t border-snip-border/50 bg-snip-surface shadow-[0_-2px_8px_rgba(0,0,0,0.3)]">
 				<div class="flex h-8 flex-shrink-0 items-center justify-between border-b border-snip-border px-4">
 					<div class="flex items-center gap-3">
 						<span class="font-display text-[10px] font-semibold uppercase tracking-[0.25em] text-snip-text-muted">
@@ -288,7 +290,7 @@ import ScriptPanel from "$lib/components/sidebar/ScriptPanel.svelte";
 
 				<div class="relative min-h-0 flex-1 overflow-hidden px-4 pb-3 pt-4">
 					{#if editor.clipStripBeatBlocks.length > 0}
-						{@const timelineBlocks = editor.editedTimelineBlocks}
+						{@const timelineBlocks = editor.previewMode === "before" ? editor.beforeTimelineBlocks : editor.editedTimelineBlocks}
 						<!-- Timeline strip: beats + cuts shown inline -->
 						<div class="flex h-full flex-col gap-1.5">
 							<!-- Top row: continuous timeline bar -->
@@ -297,7 +299,7 @@ import ScriptPanel from "$lib/components/sidebar/ScriptPanel.svelte";
 									{#if block.kind === "beat"}
 										<button
 											type="button"
-											class="group relative flex items-center overflow-hidden transition-opacity hover:opacity-90"
+											class="group relative flex items-center overflow-hidden transition-all duration-400 ease-[cubic-bezier(0.25,1,0.5,1)] hover:opacity-90"
 											style="width:{block.widthPct}%;background:{block.color}33;border-bottom:2px solid {block.color};"
 											onclick={() => editor.seekTo(block.startMs)}
 											title="{block.humanLabel}: {block.label}"
