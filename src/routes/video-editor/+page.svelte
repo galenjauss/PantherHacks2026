@@ -8,6 +8,7 @@
 
 	import SnipAIPanel from "$lib/components/sidebar/SnipAIPanel.svelte";
 	import CutSettingsPanel from "$lib/components/sidebar/CutSettingsPanel.svelte";
+	import BeatSwapPanel from "$lib/components/sidebar/BeatSwapPanel.svelte";
 	import VideoPreview from "$lib/components/main/VideoPreview.svelte";
 	import { videoEditorState as editor } from "$lib/stores/video-editor.svelte";
 
@@ -16,14 +17,25 @@
 	import ScissorsIcon from "@lucide/svelte/icons/scissors";
 
 	const legend = [
-		{ color: "#f97316", label: "filler" },
-		{ color: "#3b82f6", label: "pause" },
-		{ color: "#22c55e", label: "retake" }
+		{ color: "#22c55e", label: "keep" },
+		{ color: "#ef4444", label: "filler" },
+		{ color: "#6b7280", label: "pause" },
+		{ color: "#3b82f6", label: "retake" }
+	] as const;
+	const takeLegend = [
+		{ color: "#f5f5f5", label: "selected take" },
+		{ color: "rgba(245,245,245,0.28)", label: "final option" },
+		{ color: "rgba(59,130,246,0.5)", label: "retake option" }
 	] as const;
 	const skeletonWidths = [7, 5, 9, 6, 8, 10, 4, 12, 6, 11, 8];
 
 	$effect(() => {
 		void editor.maybeStartProcessing();
+	});
+
+	$effect(() => {
+		const signature = editor.beatSelectionSignature;
+		editor.syncBeatSelections(signature);
 	});
 
 	$effect(() => {
@@ -96,6 +108,14 @@
 									<div transition:fade={{ duration: 180 }} class="flex flex-shrink-0 flex-col">
 										<CutSettingsPanel />
 									</div>
+
+									{#if editor.swappableBeatGroups.length > 0}
+										<div class="border-t border-snip-border"></div>
+
+										<div transition:fade={{ duration: 180 }} class="flex flex-shrink-0 flex-col">
+											<BeatSwapPanel />
+										</div>
+									{/if}
 								{/if}
 
 								<div class="border-t border-snip-border"></div>
@@ -180,7 +200,9 @@
 										</div>
 									{:else}
 										<div class="px-4 py-8 text-sm text-snip-text-secondary">
-											Upload a file to populate detected filler words, pauses, and retakes.
+											{editor.selectedFile
+												? "No filler, pauses, or retakes remain in the active composition."
+												: "Upload a file to populate detected filler words, pauses, and retakes."}
 										</div>
 									{/if}
 								</div>
@@ -209,17 +231,29 @@
 							Clip strip
 						</span>
 						<div class="hidden items-center gap-2.5 md:flex">
-							{#each legend as item (item.label)}
-								<div class="flex items-center gap-1.5">
-									<div class="size-2 rounded-[3px]" style={`background:${item.color}`}></div>
-									<span class="text-[10px] text-snip-text-secondary">{item.label}</span>
-								</div>
-							{/each}
+							{#if editor.clipStripBeatBlocks.length > 0}
+								{#each takeLegend as item (item.label)}
+									<div class="flex items-center gap-1.5">
+										<div class="size-2 rounded-[3px]" style={`background:${item.color}`}></div>
+										<span class="text-[10px] text-snip-text-secondary">{item.label}</span>
+									</div>
+								{/each}
+							{:else}
+								{#each legend as item (item.label)}
+									<div class="flex items-center gap-1.5">
+										<div class="size-2 rounded-[3px]" style={`background:${item.color}`}></div>
+										<span class="text-[10px] text-snip-text-secondary">{item.label}</span>
+									</div>
+								{/each}
+							{/if}
 						</div>
 					</div>
 
 					<div class="text-[11px] text-snip-text-secondary">
 						{#if editor.totalDurationMs > 0}
+							{#if editor.swappableBeatCount > 0}
+								{editor.swappableBeatCount} beat swaps ·
+							{/if}
 							{editor.selectedCutCount} selected cuts · {editor.formatDuration(editor.selectedCutDurationMs)}
 							saved · {editor.formatClock(editor.cleanDurationMs)} clean runtime
 						{:else}
@@ -228,36 +262,94 @@
 					</div>
 				</div>
 
-				<div class="relative flex min-h-0 flex-1 items-center gap-[2px] overflow-hidden px-4 pb-3 pt-4">
-					{#if editor.clipStripSegments.length > 0}
+				<div class="relative min-h-0 flex-1 overflow-hidden px-4 pb-3 pt-4">
+					{#if editor.clipStripBeatBlocks.length > 0}
+						<div class="flex h-full min-w-full items-start gap-2 overflow-x-auto pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+							{#each editor.clipStripBeatBlocks as block (block.id)}
+								<div
+									class="flex h-full min-w-[112px] flex-col gap-2 rounded-xl border border-snip-border bg-snip-bg/55 p-2"
+									style={`width:${block.widthPct}%;`}
+								>
+									<div class="flex items-center justify-between gap-2">
+										<span class="truncate font-mono text-[9px] uppercase tracking-[0.16em] text-snip-text-muted">
+											{block.beatId}
+										</span>
+										<span class="truncate text-[10px] text-snip-text-secondary">
+											{block.activeLabel}
+										</span>
+									</div>
+
+									<div class="flex min-h-0 flex-1 flex-col gap-1.5">
+										{#each block.variants as variant (variant.id)}
+											<button
+												type="button"
+												class={`relative min-h-[28px] overflow-hidden rounded-lg border bg-snip-surface text-left transition-colors hover:border-primary/60 ${
+													variant.isSelected
+														? "border-primary shadow-[0_0_0_1px_rgba(124,58,237,0.25)]"
+														: "border-snip-border"
+												}`}
+												onclick={() => {
+													editor.selectBeatVariant(block.beatId, variant.id);
+													editor.seekTo(variant.start);
+												}}
+											>
+												<div
+													class="absolute inset-y-0 left-0 rounded-lg"
+													style={`width:${variant.fillPct}%;background:${
+														variant.isSelected
+															? "rgba(124,58,237,0.28)"
+															: variant.kind === "retake"
+																? "rgba(59,130,246,0.24)"
+																: "rgba(245,245,245,0.12)"
+													};`}
+												></div>
+												<div class="relative flex items-center justify-between gap-2 px-2 py-1.5">
+													<span class={`truncate text-[10px] font-medium ${variant.isSelected ? "text-white" : "text-snip-text-secondary"}`}>
+														{variant.label}
+													</span>
+													<span class="font-mono text-[9px] text-snip-text-muted">
+														{editor.formatSegmentDuration(variant.durationMs)}
+													</span>
+												</div>
+											</button>
+										{/each}
+									</div>
+								</div>
+							{/each}
+						</div>
+					{:else if editor.clipStripSegments.length > 0}
+						<div class="flex h-full items-center gap-[2px] overflow-hidden">
 						{#each editor.clipStripSegments as segment (segment.id)}
 							<button
 								type="button"
 								class="flex h-full max-h-[64px] min-w-[2px] cursor-pointer items-center justify-center overflow-hidden rounded-sm transition hover:brightness-125"
 								style={`width:${segment.widthPct}%;background:${
 									segment.type === "good"
-										? "rgba(245,245,245,0.22)"
+										? "#22c55e"
 										: segment.type === "filler_words"
-											? "#f97316"
+											? "#ef4444"
 											: segment.type === "dead_space"
-												? "#3b82f6"
-												: "#22c55e"
+												? "#6b7280"
+												: "#3b82f6"
 								};`}
 								onclick={() => editor.seekTo(segment.start)}
-							>
-								{#if segment.label && segment.widthPct > 4}
-									<span class="truncate px-1 text-[8px] font-semibold text-white/90">{segment.label}</span>
-								{/if}
-							</button>
-						{/each}
+								>
+									{#if segment.label && segment.widthPct > 4}
+										<span class="truncate px-1 text-[8px] font-semibold text-white/90">{segment.label}</span>
+									{/if}
+								</button>
+							{/each}
+						</div>
 					{:else}
-						{#each skeletonWidths as width, index (`skeleton-${index}`)}
-							<Skeleton
-								class={`h-full max-h-[64px] rounded-sm bg-white/${index % 3 === 0 ? "15" : "10"}`}
-								style={`width:${width}%;`}
-							/>
-						{/each}
-						<div class="flex-1"></div>
+						<div class="flex h-full items-center gap-[2px]">
+							{#each skeletonWidths as width, index (`skeleton-${index}`)}
+								<Skeleton
+									class={`h-full max-h-[64px] rounded-sm bg-white/${index % 3 === 0 ? "15" : "10"}`}
+									style={`width:${width}%;`}
+								/>
+							{/each}
+							<div class="flex-1"></div>
+						</div>
 					{/if}
 
 					<div class="pointer-events-none absolute inset-y-0 left-0 w-8 bg-[linear-gradient(to_right,#111111,transparent)]"></div>

@@ -101,6 +101,8 @@ export interface AutocutAnalysisSegment {
 	end: number;
 	category: AutocutAnalysisSegmentCategory;
 	text: string;
+	takeId?: string | null;
+	beatId?: string | null;
 }
 
 export interface AutocutTranscript {
@@ -118,6 +120,8 @@ export interface AutocutEditDecision {
 	reason: string;
 	startMs: number;
 	endMs: number;
+	takeId?: string | null;
+	beatId?: string | null;
 }
 
 export interface AutocutEditPlan {

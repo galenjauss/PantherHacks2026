@@ -10,19 +10,19 @@
 	const rows = [
 		{
 			key: "filler_words",
-			color: "#f97316",
+			color: "#ef4444",
 			label: "filler words",
 			description: (count: number) => `${count} detected segments`
 		},
 		{
 			key: "dead_space",
-			color: "#3b82f6",
+			color: "#6b7280",
 			label: "dead pauses",
 			description: (count: number) => `${count} gaps above the current threshold`
 		},
 		{
 			key: "retake",
-			color: "#22c55e",
+			color: "#3b82f6",
 			label: "retakes",
 			description: (count: number) => `${count} restart segments detected`
 		}
@@ -198,7 +198,7 @@
 				editor.setPreviewMode("after");
 				void editor.previewAppliedCuts();
 			}}
-			disabled={!editor.videoUrl || editor.selectedCutIds.length === 0}
+			disabled={!editor.videoUrl || editor.playbackSegments.length === 0}
 		>
 			preview applied cuts
 		</Button>

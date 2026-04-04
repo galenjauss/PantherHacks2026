@@ -55,6 +55,41 @@
 	interface WordLabel {
 		index: number;
 		category: "good" | "filler_words" | "retake";
+		takeId?: string | null;
+		beatId?: string | null;
+	}
+
+	interface TakeGroup {
+		takeId: string;
+		start: number;
+		end: number;
+		segments: AutocutAnalysisSegment[];
+		retakeCount: number;
+		finalCount: number;
+		fillerCount: number;
+	}
+
+	interface BeatTakeVariant {
+		id: string;
+		takeId: string;
+		beatId: string;
+		label: string;
+		kind: "good" | "retake";
+		start: number;
+		end: number;
+		segments: AutocutAnalysisSegment[];
+		goodSegments: AutocutAnalysisSegment[];
+		retakeSegments: AutocutAnalysisSegment[];
+		playableSegments: AutocutAnalysisSegment[];
+		retakeCount: number;
+		fillerCount: number;
+	}
+
+	interface BeatGroup {
+		beatId: string;
+		start: number;
+		end: number;
+		variants: BeatTakeVariant[];
 	}
 
 	let transcribing = $state(false);
@@ -78,6 +113,7 @@
 	let showDeadSpace = $state(true);
 	let deadSpaceThreshold = $state(DEFAULT_ANALYSIS_SEGMENT_OPTIONS.deadSpaceThresholdMs);
 	let clipEndTrim = $state(DEFAULT_ANALYSIS_SEGMENT_OPTIONS.clipEndTrimMs);
+	let selectedBeatVariantIds = $state<Record<string, string>>({});
 	let currentTranscriptionRun = 0;
 	let activeJobSyncToken = 0;
 	let transcriptPollDelay: ReturnType<typeof setTimeout> | null = null;
@@ -115,6 +151,165 @@
 			? buildAnalysisSegments(transcriptWords, wordLabels, analysisOptions)
 			: []
 	);
+
+	function variantId(beatId: string, takeId: string): string {
+		return `${beatId}::${takeId}`;
+	}
+
+	let takeGroups = $derived.by((): TakeGroup[] => {
+		const groups = new Map<string, TakeGroup>();
+
+		for (const segment of segments) {
+			if (!segment.takeId) continue;
+
+			const existing = groups.get(segment.takeId) ?? {
+				takeId: segment.takeId,
+				start: segment.start,
+				end: segment.end,
+				segments: [],
+				retakeCount: 0,
+				finalCount: 0,
+				fillerCount: 0
+			};
+
+			existing.start = Math.min(existing.start, segment.start);
+			existing.end = Math.max(existing.end, segment.end);
+			existing.segments.push(segment);
+
+			if (segment.category === "retake") {
+				existing.retakeCount += 1;
+			} else if (segment.category === "good") {
+				existing.finalCount += 1;
+			} else if (segment.category === "filler_words") {
+				existing.fillerCount += 1;
+			}
+
+			groups.set(segment.takeId, existing);
+		}
+
+		return [...groups.values()].sort((left, right) => left.start - right.start);
+	});
+
+	let beatGroups = $derived.by((): BeatGroup[] => {
+		const groups = new Map<string, BeatGroup>();
+
+		for (const segment of segments) {
+			if (!segment.beatId || !segment.takeId || segment.category === "dead_space") continue;
+
+			const existingBeat = groups.get(segment.beatId) ?? {
+				beatId: segment.beatId,
+				start: segment.start,
+				end: segment.end,
+				variants: []
+			};
+
+			existingBeat.start = Math.min(existingBeat.start, segment.start);
+			existingBeat.end = Math.max(existingBeat.end, segment.end);
+
+			let existingVariant = existingBeat.variants.find((variant) => variant.takeId === segment.takeId);
+			if (!existingVariant) {
+					existingVariant = {
+						id: variantId(segment.beatId, segment.takeId),
+						takeId: segment.takeId,
+						beatId: segment.beatId,
+						label: segment.takeId,
+						kind: "good",
+						start: segment.start,
+						end: segment.end,
+						segments: [],
+						goodSegments: [],
+						retakeSegments: [],
+						playableSegments: [],
+						retakeCount: 0,
+						fillerCount: 0
+					};
+					existingBeat.variants.push(existingVariant);
+				}
+
+			existingVariant.start = Math.min(existingVariant.start, segment.start);
+			existingVariant.end = Math.max(existingVariant.end, segment.end);
+			existingVariant.segments.push(segment);
+
+			if (segment.category === "good") {
+				existingVariant.goodSegments.push(segment);
+			} else if (segment.category === "retake") {
+				existingVariant.retakeSegments.push(segment);
+				existingVariant.retakeCount += 1;
+			} else if (segment.category === "filler_words") {
+				existingVariant.fillerCount += 1;
+			}
+
+			groups.set(segment.beatId, existingBeat);
+		}
+
+		return [...groups.values()]
+			.map((group) => ({
+				...group,
+				variants: group.variants
+					.flatMap((variant) => {
+						const goodSegments = [...variant.goodSegments].sort((left, right) => left.start - right.start);
+						const retakeSegments = [...variant.retakeSegments].sort((left, right) => left.start - right.start);
+						const variants: BeatTakeVariant[] = [];
+
+						if (goodSegments.length > 0) {
+							variants.push({
+								...variant,
+								id: `${variant.id}::good`,
+								label: retakeSegments.length > 0 ? `${variant.takeId} final` : variant.takeId,
+								kind: "good",
+								start: goodSegments[0].start,
+								end: goodSegments[goodSegments.length - 1].end,
+								segments: goodSegments,
+								goodSegments,
+								retakeSegments: [],
+								playableSegments: goodSegments
+							});
+						}
+
+						if (retakeSegments.length > 0) {
+							variants.push({
+								...variant,
+								id: `${variant.id}::retake`,
+								label: `${variant.takeId} retake`,
+								kind: "retake",
+								start: retakeSegments[0].start,
+								end: retakeSegments[retakeSegments.length - 1].end,
+								segments: retakeSegments,
+								goodSegments: [],
+								retakeSegments,
+								playableSegments: retakeSegments
+							});
+						}
+
+						return variants;
+					})
+					.sort((left, right) => left.start - right.start)
+			}))
+				.filter((group) => group.variants.length > 0)
+				.sort((left, right) => left.start - right.start);
+	});
+
+	$effect(() => {
+		const nextSelections: Record<string, string> = {};
+
+		for (const group of beatGroups) {
+			const existing = selectedBeatVariantIds[group.beatId];
+			const fallback = group.variants[0]?.id ?? "";
+			nextSelections[group.beatId] = group.variants.some((variant) => variant.id === existing)
+				? existing
+				: fallback;
+		}
+
+		const prevKeys = Object.keys(selectedBeatVariantIds);
+		const nextKeys = Object.keys(nextSelections);
+		const changed =
+			prevKeys.length !== nextKeys.length ||
+			nextKeys.some((key) => nextSelections[key] !== selectedBeatVariantIds[key]);
+
+		if (changed) {
+			selectedBeatVariantIds = nextSelections;
+		}
+	});
 
 	onDestroy(() => {
 		currentTranscriptionRun += 1;
@@ -172,6 +367,7 @@
 		transcriptText = "";
 		transcriptWords = [];
 		wordLabels = [];
+		selectedBeatVariantIds = {};
 		transcriptError = "";
 		analysisError = "";
 		lastSyncedAnalysisKey = "";
@@ -205,7 +401,8 @@
 			fileLastModified: file.lastModified,
 			transcriptId,
 			wordLabels,
-			analysisOptions
+			analysisOptions,
+			selectedBeatVariantIds
 		});
 	}
 
@@ -285,8 +482,9 @@
 		lastSyncedAnalysisKey = syncKey;
 		const transcript = transcriptText;
 		const words = transcriptWords;
+		const derivedSegments = getSegmentsForAutocutJob();
 		untrack(() => {
-			void syncAutocutJob(syncKey, file, transcript, words, segments);
+			void syncAutocutJob(syncKey, file, transcript, words, derivedSegments);
 		});
 	});
 
@@ -316,6 +514,82 @@
 		return `${minutes}:${String(seconds).padStart(2, "0")}.${String(millis).padStart(3, "0")}`;
 	}
 
+	function summarizeTakeGroup(group: TakeGroup): string {
+		const parts: string[] = [];
+
+		if (group.retakeCount > 0) {
+			parts.push(`${group.retakeCount} retake${group.retakeCount === 1 ? "" : "s"}`);
+		}
+
+		if (group.finalCount > 0) {
+			parts.push(`${group.finalCount} final segment${group.finalCount === 1 ? "" : "s"}`);
+		}
+
+		if (group.fillerCount > 0) {
+			parts.push(`${group.fillerCount} filler segment${group.fillerCount === 1 ? "" : "s"}`);
+		}
+
+		return parts.join(" · ") || "No classified speech in this take";
+	}
+
+	function summarizeBeatVariant(variant: BeatTakeVariant): string {
+		const parts = [
+			variant.kind === "retake" ? "retake option" : "final option",
+			`${variant.playableSegments.length} usable segment${variant.playableSegments.length === 1 ? "" : "s"}`
+		];
+
+		if (variant.retakeCount > 0) {
+			parts.push(`${variant.retakeCount} retake${variant.retakeCount === 1 ? "" : "s"}`);
+		}
+
+		if (variant.fillerCount > 0) {
+			parts.push(`${variant.fillerCount} filler segment${variant.fillerCount === 1 ? "" : "s"}`);
+		}
+
+		return parts.join(" · ");
+	}
+
+	function variantPreviewText(variant: BeatTakeVariant): string {
+		const text = variant.playableSegments
+			.map((segment) => segment.text.trim())
+			.filter(Boolean)
+			.join(" ");
+
+		return text || variant.segments.map((segment) => segment.text.trim()).filter(Boolean).join(" ") || "—";
+	}
+
+	function selectedVariantForBeat(group: BeatGroup): BeatTakeVariant | undefined {
+		const selectedId = selectedBeatVariantIds[group.beatId];
+
+		return group.variants.find((variant) => variant.id === selectedId) ?? group.variants[0];
+	}
+
+	function getSegmentsForAutocutJob(): AutocutAnalysisSegment[] {
+		if (beatGroups.length === 0) {
+			return segments;
+		}
+
+		return beatGroups.flatMap((group) => {
+			const variant = selectedVariantForBeat(group);
+			if (!variant) return [];
+
+			const promotedSegments = new Set(variant.playableSegments);
+
+			return variant.playableSegments.map((segment) =>
+				segment.category === "retake" && promotedSegments.has(segment)
+					? { ...segment, category: "good" as const }
+					: segment
+			);
+		});
+	}
+
+	function selectBeatVariant(beatId: string, id: string) {
+		selectedBeatVariantIds = {
+			...selectedBeatVariantIds,
+			[beatId]: id
+		};
+	}
+
 	function handleFileChange(e: Event) {
 		currentTranscriptionRun += 1;
 		const input = e.target as HTMLInputElement;
@@ -333,12 +607,16 @@
 		resetTranscriptionState();
 	}
 
-	function getGoodSegments(): AutocutAnalysisSegment[] {
-		return segments.filter((s) => s.category === "good");
+	function getPlayableSegments(): AutocutAnalysisSegment[] {
+		if (beatGroups.length === 0) {
+			return segments.filter((segment) => segment.category === "good");
+		}
+
+		return beatGroups.flatMap((group) => selectedVariantForBeat(group)?.playableSegments ?? []);
 	}
 
 	function playPreview() {
-		const good = getGoodSegments();
+		const good = getPlayableSegments();
 		if (!videoEl || good.length === 0) return;
 
 		clearPreviewListener();
@@ -614,15 +892,15 @@
 									<Button onclick={stopPreview} variant="destructive" size="sm">
 										Stop preview
 									</Button>
-									<span class="text-muted-foreground text-sm">
-										Segment {currentSegmentIndex + 1} / {getGoodSegments().length}
-									</span>
-								{:else}
-									<Button onclick={playPreview} size="sm" disabled={getGoodSegments().length === 0}>
-										Play “good” segments ({getGoodSegments().length})
-									</Button>
-								{/if}
-							</div>
+										<span class="text-muted-foreground text-sm">
+											Segment {currentSegmentIndex + 1} / {getPlayableSegments().length}
+										</span>
+									{:else}
+										<Button onclick={playPreview} size="sm" disabled={getPlayableSegments().length === 0}>
+											Play selected timeline ({getPlayableSegments().length})
+										</Button>
+									{/if}
+								</div>
 						{/if}
 					{/if}
 				</CardContent>
@@ -811,6 +1089,8 @@
 										<TableHead class="w-[1%] whitespace-nowrap">Start</TableHead>
 										<TableHead class="w-[1%] whitespace-nowrap">End</TableHead>
 										<TableHead class="w-[1%]">Category</TableHead>
+										<TableHead class="w-[1%] whitespace-nowrap">Take ID</TableHead>
+										<TableHead class="w-[1%] whitespace-nowrap">Beat ID</TableHead>
 										<TableHead>Text</TableHead>
 									</TableRow>
 								</TableHeader>
@@ -828,12 +1108,130 @@
 													</Badge>
 												{/if}
 											</TableCell>
+											<TableCell class="font-mono text-xs">
+												{segment.takeId ?? "—"}
+											</TableCell>
+											<TableCell class="font-mono text-xs">
+												{segment.beatId ?? "—"}
+											</TableCell>
 											<TableCell class="text-sm">{segment.text}</TableCell>
 										</TableRow>
 									{/each}
 								</TableBody>
 							</Table>
 						</ScrollArea>
+
+						{#if beatGroups.length > 0}
+							<Separator />
+
+							<div class="space-y-3">
+								<div class="space-y-1">
+									<h3 class="text-sm font-medium">Beat selector</h3>
+									<p class="text-muted-foreground text-xs">
+										Choose which take to use for each script beat, then use the preview button above to play the composed timeline.
+									</p>
+								</div>
+
+								<div class="space-y-3">
+									{#each beatGroups as group}
+										<div class="space-y-3 rounded-lg border p-4">
+											<div class="flex flex-wrap items-center gap-2">
+												<Badge variant="outline" class="font-mono">{group.beatId}</Badge>
+												<span class="text-muted-foreground font-mono text-xs">
+													{formatMs(group.start)} - {formatMs(group.end)}
+												</span>
+											</div>
+
+												<div class="flex flex-wrap gap-2">
+													{#each group.variants as variant}
+														<Button
+															variant={selectedVariantForBeat(group)?.id === variant.id ? "default" : "outline"}
+															size="sm"
+															onclick={() => selectBeatVariant(group.beatId, variant.id)}
+														>
+															{variant.label}
+														</Button>
+													{/each}
+												</div>
+
+											<div class="grid gap-3 lg:grid-cols-2">
+												{#each group.variants as variant}
+													<div
+														class={cn(
+															"space-y-2 rounded-md border p-3",
+															selectedVariantForBeat(group)?.id === variant.id && "border-primary bg-primary/5"
+														)}
+													>
+														<div class="flex flex-wrap items-center gap-2">
+															<Badge
+																variant={selectedVariantForBeat(group)?.id === variant.id ? "default" : "secondary"}
+																class="font-mono"
+															>
+																{variant.label}
+															</Badge>
+															<span class="text-muted-foreground text-xs">
+																{summarizeBeatVariant(variant)}
+															</span>
+														</div>
+														<p class="text-sm">{variantPreviewText(variant)}</p>
+														<p class="text-muted-foreground font-mono text-xs">
+															{formatMs(variant.start)} - {formatMs(variant.end)}
+														</p>
+													</div>
+												{/each}
+											</div>
+										</div>
+									{/each}
+								</div>
+							</div>
+						{/if}
+
+						{#if takeGroups.length > 0}
+							<Separator />
+
+							<div class="space-y-3">
+								<div class="space-y-1">
+									<h3 class="text-sm font-medium">Take attempts</h3>
+									<p class="text-muted-foreground text-xs">
+										Each group shows everything that was classified into the same overall take attempt.
+									</p>
+								</div>
+
+								<div class="space-y-3">
+									{#each takeGroups as group}
+										<div class="space-y-3 rounded-lg border p-4">
+											<div class="flex flex-wrap items-center gap-2">
+												<Badge variant="outline" class="font-mono">{group.takeId}</Badge>
+												<Badge variant="secondary">{summarizeTakeGroup(group)}</Badge>
+												<span class="text-muted-foreground font-mono text-xs">
+													{formatMs(group.start)} - {formatMs(group.end)}
+												</span>
+											</div>
+
+											<div class="space-y-2">
+												{#each group.segments as segment}
+													<div class="rounded-md border bg-muted/30 p-3">
+														<div class="mb-2 flex flex-wrap items-center gap-2">
+															{#if segment.category === "retake"}
+																<Badge variant="destructive">{categoryLabels[segment.category]}</Badge>
+															{:else}
+																<Badge variant="outline" class={categoryBadgeClass[segment.category]}>
+																	{categoryLabels[segment.category]}
+																</Badge>
+															{/if}
+															<span class="text-muted-foreground font-mono text-xs">
+																{formatMs(segment.start)} - {formatMs(segment.end)}
+															</span>
+														</div>
+														<p class="text-sm">{segment.text || "—"}</p>
+													</div>
+												{/each}
+											</div>
+										</div>
+									{/each}
+								</div>
+							</div>
+						{/if}
 
 						<Separator />
 
