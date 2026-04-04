@@ -1,34 +1,8 @@
 <script lang="ts">
 	import { videoEditorState as editor } from "$lib/stores/video-editor.svelte";
 
-	const stepDefs = [
-		"uploaded & validated format",
-		"transcribing audio via AssemblyAI",
-		"classifying filler words & pauses",
-		"syncing the autocut job",
-		"clean preview ready"
-	];
-
-	const total = stepDefs.length;
-
-	const steps = $derived(
-		stepDefs.map((label, index) => {
-			const number = index + 1;
-			const state =
-				editor.workflowStep > total || number < editor.workflowStep
-					? "done"
-					: number === editor.workflowStep
-						? "active"
-						: "pending";
-
-			return {
-				label,
-				state,
-				glyph: state === "done" ? "✓" : state === "active" ? "•" : "—"
-			} as const;
-		})
-	);
-
+	const total = $derived(editor.workflowSteps.length);
+	const steps = $derived(editor.workflowSteps);
 	const fillPct = $derived((Math.min(Math.max(editor.workflowStep - 1, 0), total) / total) * 100);
 	const glyphColor = { done: "#22c55e", active: "#7c3aed", pending: "#3f3f46" };
 	const labelColor = { done: "#6b7280", active: "#f5f5f5", pending: "#3f3f46" };
@@ -53,7 +27,7 @@
 	</div>
 
 	<ol class="flex flex-col gap-0">
-		{#each steps as step}
+		{#each steps as step, index (`workflow-step-${index}-${step.label}`)}
 			<li class="flex h-7 items-center gap-2.5">
 				<span
 					class={`w-3 flex-shrink-0 text-center text-[12px] font-bold leading-none ${step.state === "active" ? "active-glyph" : ""}`}

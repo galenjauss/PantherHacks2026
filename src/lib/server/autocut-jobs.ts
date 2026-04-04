@@ -294,7 +294,8 @@ function buildActualEditPlan(
 							? "This section closes the clip cleanly."
 							: "This section contributes to the final intended message.",
 					startMs: segment.start,
-					endMs: segment.end
+					endMs: segment.end,
+					takeId: segment.takeId ?? null
 				};
 			}
 
@@ -306,7 +307,8 @@ function buildActualEditPlan(
 					label: "Trim filler words",
 					reason: "These words slow the pacing without adding meaning.",
 					startMs: segment.start,
-					endMs: segment.end
+					endMs: segment.end,
+					takeId: segment.takeId ?? null
 				};
 			}
 
@@ -318,7 +320,8 @@ function buildActualEditPlan(
 					label: "Remove retake",
 					reason: "This attempt is superseded by a cleaner take later in the clip.",
 					startMs: segment.start,
-					endMs: segment.end
+					endMs: segment.end,
+					takeId: segment.takeId ?? null
 				};
 			}
 
@@ -329,7 +332,8 @@ function buildActualEditPlan(
 				label: "Trim dead air",
 				reason: "This gap slows the clip without adding content.",
 				startMs: segment.start,
-				endMs: segment.end
+				endMs: segment.end,
+				takeId: null
 			};
 		});
 
@@ -600,7 +604,10 @@ export function createAutocutJob(input: CreateAutocutJobInput): AutocutJob {
 		},
 		metadata: input.metadata,
 		language: input.language,
-		speakersExpected: input.speakersExpected
+		speakersExpected: input.speakersExpected,
+		transcriptText: input.transcriptText,
+		transcriptWords: input.transcriptWords,
+		analysisSegments: input.analysisSegments
 	};
 
 	jobs.set(record.id, record);

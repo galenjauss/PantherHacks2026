@@ -20,6 +20,7 @@ type WordLabelCategory = "good" | "filler_words" | "retake";
 interface WordLabel {
 	index: number;
 	category: WordLabelCategory;
+	takeId?: string | null;
 }
 
 interface SegmentMeta {
@@ -27,6 +28,8 @@ interface SegmentMeta {
 	shortLabel: string;
 	color: string;
 }
+
+type WorkflowStepState = "done" | "active" | "pending";
 
 export interface EditorCutSegment extends Omit<AutocutAnalysisSegment, "category"> {
 	id: string;
@@ -65,7 +68,7 @@ function clamp(value: number, min: number, max: number): number {
 }
 
 function segmentId(segment: AutocutAnalysisSegment, index: number): string {
-	return `${segment.category}:${segment.start}:${segment.end}:${index}`;
+	return `${segment.category}:${segment.takeId ?? "none"}:${segment.start}:${segment.end}:${index}`;
 }
 
 function humanizeSegmentText(segment: AutocutAnalysisSegment): string {
@@ -100,6 +103,7 @@ function buildPlaybackSegments(segments: AutocutAnalysisSegment[]): AutocutAnaly
 		if (last && segment.start <= last.end + PREVIEW_EPSILON_MS) {
 			last.end = Math.max(last.end, segment.end);
 			last.text = [last.text, segment.text].filter(Boolean).join(" ").trim();
+			last.takeId = last.takeId === segment.takeId ? last.takeId : null;
 			continue;
 		}
 
@@ -169,25 +173,70 @@ class VideoEditorState {
 		return Boolean(this.selectedFile && this.wordLabels.length > 0 && !this.isBusy && !this.hasErrors);
 	}
 
+	get workflowSteps(): Array<{ label: string; state: WorkflowStepState; glyph: string }> {
+		const steps = [
+			"uploaded & validated format",
+			this.transcribing && !this.transcriptId
+				? "uploading clip for transcription"
+				: this.pollingTranscript && this.normalizedTranscriptStatus === "queued"
+					? "waiting for transcript generation"
+					: this.transcriptWords.length > 0
+						? "timestamped transcript ready"
+						: "loading transcript timestamps",
+			this.wordLabels.length > 0
+				? "cuts ready from transcript analysis"
+				: "coming up with cuts from the transcript",
+			"syncing the autocut job",
+			"clean preview ready"
+		];
+
+		return steps.map((label, index) => {
+			const number = index + 1;
+			const state =
+				this.workflowStep > steps.length || number < this.workflowStep
+					? "done"
+					: number === this.workflowStep
+						? "active"
+						: "pending";
+
+			return {
+				label,
+				state,
+				glyph: state === "done" ? "✓" : state === "active" ? "•" : "—"
+			};
+		});
+	}
+
 	get statusLabel(): string {
 		if (!this.selectedFile) return "Awaiting upload";
-		if (this.transcribing || this.pollingTranscript) return "Transcribing";
-		if (this.analyzing) return "Analyzing";
-		if (this.isSyncing) return "Syncing";
+		if (this.transcribing && !this.transcriptId) return "Uploading";
+		if (this.pollingTranscript) {
+			if (this.normalizedTranscriptStatus === "queued") return "Queued";
+			return "Loading transcript";
+		}
+		if (this.analyzing) return "Finding cuts";
+		if (this.isSyncing) return "Syncing cuts";
 		if (this.isReady) return "Ready";
 		return "Queued";
 	}
 
 	get statusDescription(): string {
 		if (!this.selectedFile) return "Upload a video to begin the editor pipeline.";
-		if (this.transcribing || this.pollingTranscript) {
-			return "AssemblyAI is generating the timestamped transcript.";
+		if (this.transcribing && !this.transcriptId) {
+			return "Uploading the clip and starting the transcript job.";
+		}
+		if (this.pollingTranscript) {
+			if (this.normalizedTranscriptStatus === "queued") {
+				return "The transcript request is queued. Timestamped words will stream in once processing begins.";
+			}
+
+			return "Loading the transcript with word-level timestamps from AssemblyAI.";
 		}
 		if (this.analyzing) {
-			return "Classifying filler words, pauses, and retakes.";
+			return "Coming up with cuts by marking filler words, pauses, and retakes in the transcript.";
 		}
 		if (this.isSyncing) {
-			return "Syncing the latest cut plan to the autocut job.";
+			return "Sending the latest transcript and cut plan to the autocut job.";
 		}
 		if (this.isReady) {
 			return "Preview the applied cuts, inspect the transcript, and refine the plan.";
@@ -710,6 +759,10 @@ class VideoEditorState {
 
 		clearTimeout(this.transcriptPollDelay);
 		this.transcriptPollDelay = null;
+	}
+
+	private get normalizedTranscriptStatus(): string {
+		return this.transcriptStatus.trim().toLowerCase();
 	}
 
 	private waitForNextTranscriptPoll(ms: number): Promise<void> {
