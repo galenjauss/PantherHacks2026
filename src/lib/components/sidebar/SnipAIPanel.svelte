@@ -1,92 +1,120 @@
 <script lang="ts">
-	// step: 1-indexed active step (3–5 while processing, 6 = all done)
-	let { step = 3 }: { step: number } = $props();
+	import { videoEditorState as editor } from "$lib/stores/video-editor.svelte";
 
 	const stepDefs = [
-		'uploaded & validated format',
-		'transcribing audio via assemblyai',
-		'detecting filler words & dead air…',
-		'classifying cut types',
-		'rendering clean preview',
+		"uploaded & validated format",
+		"transcribing audio via AssemblyAI",
+		"classifying filler words & pauses",
+		"syncing the autocut job",
+		"clean preview ready"
 	];
 
 	const total = stepDefs.length;
 
 	const steps = $derived(
-		stepDefs.map((label, i) => {
-			const n = i + 1;
-			const state = step > total || n < step ? 'done'
-			            : n === step             ? 'active'
-			            :                          'pending';
+		stepDefs.map((label, index) => {
+			const number = index + 1;
+			const state =
+				editor.workflowStep > total || number < editor.workflowStep
+					? "done"
+					: number === editor.workflowStep
+						? "active"
+						: "pending";
+
 			return {
 				label,
 				state,
-				glyph: state === 'done' ? '✓' : state === 'active' ? '•' : '—',
-			} as { label: string; state: 'done' | 'active' | 'pending'; glyph: string };
+				glyph: state === "done" ? "✓" : state === "active" ? "•" : "—"
+			} as const;
 		})
 	);
 
-	// Fill width: proportion of fully-completed steps
-	const fillPct = $derived(Math.min(Math.max(step - 1, 0), total) / total * 100);
-
-	const glyphColor = { done: '#22c55e', active: '#7c3aed', pending: '#3f3f46' };
-	const labelColor = { done: '#6b7280', active: '#f5f5f5', pending: '#3f3f46' };
+	const fillPct = $derived((Math.min(Math.max(editor.workflowStep - 1, 0), total) / total) * 100);
+	const glyphColor = { done: "#22c55e", active: "#7c3aed", pending: "#3f3f46" };
+	const labelColor = { done: "#6b7280", active: "#f5f5f5", pending: "#3f3f46" };
 </script>
 
-<div class="mx-4 my-3 bg-[#1a1a1a] border border-[#222222] rounded-lg p-4 flex flex-col gap-3">
+<div class="mx-4 my-3 flex flex-col gap-3 rounded-lg border border-snip-border bg-snip-surface-elevated p-4">
+	<span class="text-[10px] font-semibold uppercase tracking-[0.25em] text-snip-text-muted">Snip AI</span>
 
-	<span class="text-[10px] font-semibold text-[#3f3f46] tracking-widest uppercase">Snip AI</span>
-
-	<!-- Header row -->
 	<div class="flex items-center gap-2">
-		<span class="pulse-dot w-[7px] h-[7px] rounded-full bg-[#7c3aed] flex-shrink-0"></span>
-		<span class="text-[13px] font-medium text-[#f5f5f5] flex-1 leading-none">
-			{step > total ? 'analysis complete' : 'analysing…'}
-		</span>
-		<span class="text-[12px] text-[#6b7280] font-mono tabular-nums flex-shrink-0">
-			{Math.min(step, total)}&thinsp;/&thinsp;{total}
+		<span class="pulse-dot size-[7px] flex-shrink-0 rounded-full bg-primary"></span>
+		<span class="flex-1 text-[13px] font-medium leading-none text-white">{editor.statusLabel}</span>
+		<span class="font-mono text-[12px] tabular-nums text-snip-text-secondary">
+			{Math.min(Math.max(editor.workflowStep, 1), total)} / {total}
 		</span>
 	</div>
 
-	<!-- Progress bar -->
-	<div class="w-full h-[2px] rounded-full bg-[#1f1f1f] overflow-hidden relative">
-		<div class="absolute inset-y-0 left-0 rounded-full bg-[#7c3aed] transition-all duration-500"
-			 style="width:{fillPct}%"></div>
-		<div class="absolute inset-y-0 left-0 rounded-full overflow-hidden transition-all duration-500"
-			 style="width:{fillPct}%">
+	<div class="relative h-[2px] w-full overflow-hidden rounded-full bg-[#1f1f1f]">
+		<div class="absolute inset-y-0 left-0 rounded-full bg-primary transition-all duration-500" style={`width:${fillPct}%`}></div>
+		<div class="absolute inset-y-0 left-0 overflow-hidden rounded-full transition-all duration-500" style={`width:${fillPct}%`}>
 			<div class="shimmer-track absolute inset-0"></div>
 		</div>
 	</div>
 
-	<!-- Step checklist -->
 	<ol class="flex flex-col gap-0">
-		{#each steps as s}
-			<li class="flex items-center gap-2.5 h-7">
+		{#each steps as step}
+			<li class="flex h-7 items-center gap-2.5">
 				<span
-					class="w-3 text-center text-[12px] font-bold leading-none flex-shrink-0
-						{s.state === 'active' ? 'active-glyph' : ''}"
-					style="color:{glyphColor[s.state]}"
-				>{s.glyph}</span>
-				<span class="text-[12px] leading-none truncate" style="color:{labelColor[s.state]}">
-					{s.label}
+					class={`w-3 flex-shrink-0 text-center text-[12px] font-bold leading-none ${step.state === "active" ? "active-glyph" : ""}`}
+					style={`color:${glyphColor[step.state]}`}
+				>
+					{step.glyph}
+				</span>
+				<span class="truncate text-[12px] leading-none" style={`color:${labelColor[step.state]}`}>
+					{step.label}
 				</span>
 			</li>
 		{/each}
 	</ol>
-
 </div>
 
 <style>
-	.pulse-dot   { animation: dot-pulse   1.5s ease-in-out infinite; }
-	.active-glyph{ animation: glyph-pulse 1.5s ease-in-out infinite; }
+	.pulse-dot {
+		animation: dot-pulse 1.5s ease-in-out infinite;
+	}
 
-	@keyframes dot-pulse   { 0%,100%{opacity:.35;transform:scale(.8)} 50%{opacity:1;transform:scale(1)} }
-	@keyframes glyph-pulse { 0%,100%{opacity:.4} 50%{opacity:1} }
+	.active-glyph {
+		animation: glyph-pulse 1.5s ease-in-out infinite;
+	}
+
+	@keyframes dot-pulse {
+		0%,
+		100% {
+			opacity: 0.35;
+			transform: scale(0.8);
+		}
+
+		50% {
+			opacity: 1;
+			transform: scale(1);
+		}
+	}
+
+	@keyframes glyph-pulse {
+		0%,
+		100% {
+			opacity: 0.4;
+		}
+
+		50% {
+			opacity: 1;
+		}
+	}
 
 	.shimmer-track {
-		background: linear-gradient(90deg, transparent 0%, rgba(255,255,255,.25) 50%, transparent 100%);
+		background: linear-gradient(90deg, transparent 0%, rgba(255, 255, 255, 0.25) 50%, transparent 100%);
 		animation: shimmer-slide 1.8s ease-in-out infinite;
 		transform: translateX(-100%);
 	}
-	@keyframes shimmer-slide { 0%{transform:translateX(-100%)} 100%{transform:translateX(400%)} }
+
+	@keyframes shimmer-slide {
+		0% {
+			transform: translateX(-100%);
+		}
+
+		100% {
+			transform: translateX(400%);
+		}
+	}
 </style>

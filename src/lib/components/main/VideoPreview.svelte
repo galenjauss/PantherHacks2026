@@ -1,110 +1,159 @@
 <script lang="ts">
-	import { Play } from '@lucide/svelte';
-	import { Slider } from '$lib/components/ui/slider';
+	import { Badge } from "$lib/components/ui/badge";
+	import { Button } from "$lib/components/ui/button";
+	import { Skeleton } from "$lib/components/ui/skeleton";
+	import { videoEditorState as editor } from "$lib/stores/video-editor.svelte";
+	import PauseIcon from "@lucide/svelte/icons/pause";
+	import PlayIcon from "@lucide/svelte/icons/play";
+	import RefreshCcwIcon from "@lucide/svelte/icons/refresh-ccw";
+	import WandSparklesIcon from "@lucide/svelte/icons/wand-sparkles";
 
-	let {
-		isProcessed  = false,
-		naturalness  = $bindable(3),
-	}: {
-		isProcessed?: boolean;
-		naturalness?: number;
-	} = $props();
+	let videoEl = $state<HTMLVideoElement | null>(null);
 
-	let baActive = $state(false);
+	$effect(() => {
+		editor.setVideoElement(videoEl);
+
+		return () => {
+			editor.setVideoElement(null);
+		};
+	});
 </script>
 
-<div class="flex flex-col flex-1 min-h-0 bg-[#0a0a0a]">
+<div class="flex min-h-0 flex-1 flex-col bg-snip-bg">
+	<div class="flex min-h-0 flex-1 items-center justify-center p-8">
+		<div class="relative w-full max-w-[860px]">
+			<div class="relative aspect-video overflow-hidden rounded-[20px] border border-snip-border bg-black/70 shadow-[0_40px_120px_rgba(0,0,0,0.35)]">
+				{#if editor.videoUrl}
+					<video
+						bind:this={videoEl}
+						src={editor.videoUrl}
+						class="h-full w-full object-contain"
+						preload="auto"
+						onended={() => editor.handleBeforePlaybackEnded()}
+						onloadedmetadata={() => editor.setVideoDuration(videoEl?.duration ?? 0)}
+						ontimeupdate={() => editor.updateCurrentTime(videoEl?.currentTime ?? 0)}
+					>
+						<track kind="captions" />
+					</video>
 
-	<!-- ── Video stage ──────────────────────────────────────────────── -->
-	<div class="flex-1 flex items-center justify-center p-8 min-h-0">
-		<div class="relative w-full max-w-[700px]">
-
-			<div class="aspect-video w-full bg-[#111111] rounded-sm border border-[#1e1e1e] flex items-center justify-center overflow-hidden relative">
-
-				{#if isProcessed}
-					<!-- ── Processed: silhouette + badge ──────────────── -->
-					<div class="absolute top-3 left-1/2 -translate-x-1/2 flex items-center gap-1.5 px-2.5 py-1 bg-[#0f0f0f] border border-[#2a2a2a] rounded-full z-10 whitespace-nowrap">
-						<svg class="w-[10px] h-[10px] text-[#22c55e] flex-shrink-0" viewBox="0 0 10 10" fill="none">
-							<path d="M1.5 5.5l2 2 5-5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/>
-						</svg>
-						<span class="text-[10px] text-[#6b7280] font-medium">clean preview</span>
+					<div class="pointer-events-none absolute inset-x-0 top-0 flex justify-center p-4">
+						<div class="flex items-center gap-2 rounded-full border border-white/10 bg-black/65 px-3 py-1.5 backdrop-blur">
+							<span class={`size-2 rounded-full ${editor.isReady ? "bg-emerald-400" : "bg-primary"}`}></span>
+							<span class="text-[11px] font-medium text-white">
+								{editor.previewMode === "after" ? "clean preview" : "source preview"}
+							</span>
+						</div>
 					</div>
-					<svg width="72" height="90" viewBox="0 0 72 90" fill="none" aria-hidden="true">
-						<circle cx="36" cy="22" r="14" fill="#1e1e2a"/>
-						<rect x="8" y="44" width="56" height="44" rx="10" fill="#1e1e2a"/>
-					</svg>
 
+					{#if editor.isBusy}
+						<div class="pointer-events-none absolute inset-x-0 bottom-0 p-4">
+							<div class="rounded-2xl border border-white/10 bg-black/65 p-4 backdrop-blur">
+								<div class="mb-3 flex items-center gap-2 text-sm text-white">
+									<WandSparklesIcon class="size-4 text-primary" />
+									<span>{editor.statusDescription}</span>
+								</div>
+								<div class="space-y-2">
+									<Skeleton class="h-2 w-full rounded bg-white/12" />
+									<Skeleton class="h-2 w-4/5 rounded bg-white/10" />
+									<Skeleton class="h-2 w-3/5 rounded bg-white/10" />
+								</div>
+							</div>
+						</div>
+					{/if}
 				{:else}
-					<!-- ── Processing: spinner ─────────────────────────── -->
-					<div class="flex flex-col items-center gap-3">
-						<div class="spinner w-12 h-12 rounded-full border-2 border-[#7c3aed] border-t-transparent"></div>
-						<span class="text-[13px] text-[#6b7280]">analysing transcript…</span>
+					<div class="flex h-full flex-col items-center justify-center gap-4 px-8 text-center">
+						<div class="rounded-2xl bg-primary/12 p-4 text-primary">
+							<WandSparklesIcon class="size-8" />
+						</div>
+						<div class="space-y-2">
+							<h2 class="text-2xl font-semibold text-white">Upload a source clip</h2>
+							<p class="max-w-md text-sm leading-6 text-snip-text-secondary">
+								Start from the home page or replace the file from the sidebar to populate the live preview.
+							</p>
+						</div>
 					</div>
 				{/if}
-
 			</div>
 
-			<div class="absolute bottom-2.5 right-3 text-[11px] font-mono text-[#3f3f46] pointer-events-none">
-				{isProcessed ? '00:00 / 38:06' : '00:00 / 42:18'}
+			<div class="pointer-events-none absolute bottom-3 right-4 text-[11px] font-mono text-white/40">
+				{editor.formatClock(editor.currentTimeMs)} / {editor.formatClock(editor.totalDurationMs)}
 			</div>
-
 		</div>
 	</div>
 
-	<!-- ── Controls bar ──────────────────────────────────────────────── -->
-	<div class="h-[44px] flex-shrink-0 border-t border-[#222222] flex items-center justify-between px-4 gap-4">
-
-		<!-- Left: play + timecode -->
+	<div class="flex h-[52px] flex-shrink-0 items-center justify-between gap-4 border-t border-snip-border px-4">
 		<div class="flex items-center gap-2.5">
-			<button class="text-[#6b7280] hover:text-[#f5f5f5] transition-colors flex-shrink-0" aria-label="Play">
-				<Play class="w-4 h-4" strokeWidth={1.8} />
-			</button>
-			<span class="text-[13px] font-mono text-[#6b7280] tabular-nums">
-				{isProcessed ? '00:00 / 38:06' : '00:00 / 42:18'}
+			<Button
+				variant="ghost"
+				size="icon-sm"
+				class="text-snip-text-secondary hover:bg-snip-surface hover:text-white"
+				disabled={!editor.videoUrl}
+				onclick={() => void editor.previewAppliedCuts()}
+			>
+				{#if editor.isPreviewPlaying}
+					<PauseIcon class="size-4" />
+				{:else}
+					<PlayIcon class="size-4" />
+				{/if}
+			</Button>
+
+			<span class="font-mono text-[13px] tabular-nums text-snip-text-secondary">
+				{editor.formatClock(editor.currentTimeMs)} / {editor.formatClock(editor.totalDurationMs)}
 			</span>
 		</div>
 
-		{#if isProcessed}
-			<!-- ── Processed right cluster ──────────────────────────── -->
+		{#if editor.videoUrl}
 			<div class="flex items-center gap-3">
-				<span class="text-[13px] font-medium text-[#f5f5f5]">38:06 clean</span>
-				<span class="text-[11px] text-[#3f3f46] line-through decoration-[#3f3f46]">was 42:18</span>
-				<button
-					onclick={() => (baActive = !baActive)}
-					class="text-[11px] font-medium border rounded-full px-2.5 py-[3px] transition-colors flex-shrink-0
-						{baActive ? 'bg-[#7c3aed] border-[#7c3aed] text-white' : 'text-[#6b7280] border-[#333333] hover:border-[#7c3aed] hover:text-[#f5f5f5]'}"
+				<Badge
+					variant="outline"
+					class="border-snip-border bg-snip-surface text-snip-text-primary"
 				>
-					{baActive ? 'after' : 'B/A'}
-				</button>
-			</div>
+					−{editor.formatDuration(editor.selectedCutDurationMs)}
+				</Badge>
 
-		{:else}
-			<!-- ── Processing right cluster ─────────────────────────── -->
-			<div class="flex items-center gap-3">
-				<span class="text-[11px] text-[#3f3f46] flex-shrink-0">naturalness</span>
-				<div class="w-28 slider-snip">
-					<Slider type="single" bind:value={naturalness} min={1} max={5} step={1} />
+				<span class="text-[13px] font-medium text-white">{editor.formatClock(editor.cleanDurationMs)} clean</span>
+
+				<div class="flex items-center gap-1 rounded-full border border-snip-border bg-snip-surface p-1">
+					<button
+						type="button"
+						onclick={() => editor.setPreviewMode("before")}
+						class={`rounded-full px-3 py-[5px] text-[11px] font-medium transition-colors ${
+							editor.previewMode === "before"
+								? "bg-snip-surface-elevated text-white"
+								: "text-snip-text-secondary hover:text-white"
+						}`}
+					>
+						before
+					</button>
+					<button
+						type="button"
+						onclick={() => editor.setPreviewMode("after")}
+						class={`rounded-full px-3 py-[5px] text-[11px] font-medium transition-colors ${
+							editor.previewMode === "after"
+								? "bg-primary text-white"
+								: "text-snip-text-secondary hover:text-white"
+						}`}
+					>
+						after
+					</button>
 				</div>
-				<span class="text-[13px] font-medium text-[#f5f5f5] w-3 text-center tabular-nums flex-shrink-0">
-					{naturalness}
-				</span>
-				<button class="text-[11px] font-medium text-[#6b7280] border border-[#333333] rounded-full px-2.5 py-[3px] hover:border-[#7c3aed] hover:text-[#f5f5f5] transition-colors flex-shrink-0">
-					B/A
-				</button>
+
+				<Button
+					variant="outline"
+					size="sm"
+					class="border-snip-border bg-snip-surface text-snip-text-primary hover:bg-snip-surface-elevated"
+					disabled={!editor.jobId}
+					onclick={() => void editor.pollJob()}
+				>
+					<RefreshCcwIcon class="mr-1 size-4" />
+					Refresh job
+				</Button>
+			</div>
+		{:else}
+			<div class="space-y-1">
+				<Skeleton class="h-3 w-32 rounded bg-white/10" />
+				<Skeleton class="h-3 w-24 rounded bg-white/10" />
 			</div>
 		{/if}
-
 	</div>
-
 </div>
-
-<style>
-	.spinner { animation: spin 1s linear infinite; }
-	@keyframes spin { to { transform: rotate(360deg); } }
-
-	.slider-snip :global([data-slot="slider-track"])      { background-color:#222222; height:4px; }
-	.slider-snip :global([data-slot="slider-range"])      { background-color:#7c3aed; }
-	.slider-snip :global([data-slot="slider-thumb"])      { width:14px; height:14px; background-color:#7c3aed; border-color:#7c3aed; box-shadow:0 0 0 2px #0a0a0a; }
-	.slider-snip :global([data-slot="slider-thumb"]:hover),
-	.slider-snip :global([data-slot="slider-thumb"]:focus-visible) { box-shadow:0 0 0 2px #0a0a0a, 0 0 0 4px #7c3aed55; }
-</style>
