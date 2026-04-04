@@ -8,8 +8,7 @@
 
 	import SnipAIPanel from "$lib/components/sidebar/SnipAIPanel.svelte";
 	import CutSettingsPanel from "$lib/components/sidebar/CutSettingsPanel.svelte";
-	import BeatSwapPanel from "$lib/components/sidebar/BeatSwapPanel.svelte";
-	import ScriptPanel from "$lib/components/sidebar/ScriptPanel.svelte";
+import ScriptPanel from "$lib/components/sidebar/ScriptPanel.svelte";
 	import VideoPreview from "$lib/components/main/VideoPreview.svelte";
 	import { videoEditorState as editor } from "$lib/stores/video-editor.svelte";
 
@@ -141,11 +140,6 @@
 								<div class="flex min-h-0 flex-1 flex-col overflow-y-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
 									{#if sidebarTab === "script"}
 										<ScriptPanel onSeekBeat={handleSeekBeat} />
-
-										{#if editor.swappableBeatGroups.length > 0}
-											<div class="border-t border-snip-border"></div>
-											<BeatSwapPanel />
-										{/if}
 
 									{:else if sidebarTab === "cuts"}
 										{#if editor.filteredCutSegments.length > 0}
