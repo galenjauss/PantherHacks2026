@@ -131,11 +131,11 @@
 	}
 
 	function transcribeButtonLabel(): string {
-		if (transcribing) return "Submitting...";
+		if (transcribing) return "Starting auto cut...";
 		if (pollingTranscript) return "Transcribing...";
 		if (analyzing) return "Analyzing...";
-		if (creatingAutocutJob) return "Syncing job...";
-		return "Transcribe";
+		if (creatingAutocutJob) return "Building auto cut...";
+		return "Auto Cut";
 	}
 
 	function clearTranscriptPolling() {
@@ -384,36 +384,6 @@
 		currentSegmentIndex = 0;
 	}
 
-	async function upload() {
-		if (!selectedFile || isTranscriptBusy()) return;
-
-		uploading = true;
-		resetJobState();
-
-		try {
-			const formData = new FormData();
-			formData.append("file", selectedFile);
-
-			const res = await fetch("/api/video/autocut", {
-				method: "POST",
-				body: formData
-			});
-
-			const data = await res.json();
-			response = JSON.stringify(data, null, 2);
-
-			if (res.ok && data.job?.id) {
-				jobId = data.job.id;
-			} else if (!res.ok) {
-				error = `HTTP ${res.status}: ${data.error ?? "Unknown error"}`;
-			}
-		} catch (err) {
-			error = err instanceof Error ? err.message : "Request failed";
-		} finally {
-			uploading = false;
-		}
-	}
-
 	async function pollJob() {
 		if (!jobId) return;
 
@@ -563,7 +533,7 @@
 			<Card>
 				<CardHeader>
 					<CardTitle>Video</CardTitle>
-					<CardDescription>Select a file, preview it, and run upload or transcription.</CardDescription>
+					<CardDescription>Select a file, preview it, and run auto cut on the real pipeline.</CardDescription>
 				</CardHeader>
 				<CardContent class="space-y-4">
 					<div class="space-y-2">
@@ -657,13 +627,9 @@
 					{/if}
 				</CardContent>
 				<CardFooter class="flex flex-wrap gap-2">
-					<Button onclick={upload} disabled={!selectedFile || uploading || isTranscriptBusy()}>
-						{uploading ? "Creating mock job…" : "Create mock job"}
-					</Button>
 					<Button
 						onclick={transcribe}
 						disabled={!selectedFile || uploading || isTranscriptBusy()}
-						variant="secondary"
 					>
 						{transcribeButtonLabel()}
 					</Button>
@@ -671,9 +637,8 @@
 						<Button onclick={pollJob} variant="outline">Poll job status</Button>
 					{/if}
 					<p class="text-muted-foreground w-full text-xs">
-						Create mock job uses the synthetic backend fixture. Transcribe runs the real
-						transcription flow, labels words, derives segments from the current sliders, and
-						syncs an autocut job from that result.
+						Auto Cut runs the real transcription flow, labels words, derives segments from
+						the current sliders, and syncs an autocut job from that result.
 					</p>
 				</CardFooter>
 			</Card>
