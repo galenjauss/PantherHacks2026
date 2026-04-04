@@ -295,6 +295,9 @@ function buildActualEditPlan(
 							: "This section contributes to the final intended message.",
 					startMs: segment.start,
 					endMs: segment.end,
+					lineId: segment.lineId ?? null,
+					slotId: segment.slotId ?? null,
+					variantId: segment.variantId ?? null,
 					takeId: segment.takeId ?? null,
 					beatId: segment.beatId ?? null
 				};
@@ -309,6 +312,9 @@ function buildActualEditPlan(
 					reason: "These words slow the pacing without adding meaning.",
 					startMs: segment.start,
 					endMs: segment.end,
+					lineId: segment.lineId ?? null,
+					slotId: segment.slotId ?? null,
+					variantId: segment.variantId ?? null,
 					takeId: segment.takeId ?? null,
 					beatId: segment.beatId ?? null
 				};
@@ -323,6 +329,9 @@ function buildActualEditPlan(
 					reason: "This attempt is superseded by a cleaner take later in the clip.",
 					startMs: segment.start,
 					endMs: segment.end,
+					lineId: segment.lineId ?? null,
+					slotId: segment.slotId ?? null,
+					variantId: segment.variantId ?? null,
 					takeId: segment.takeId ?? null,
 					beatId: segment.beatId ?? null
 				};
@@ -336,6 +345,9 @@ function buildActualEditPlan(
 				reason: "This gap slows the clip without adding content.",
 				startMs: segment.start,
 				endMs: segment.end,
+				lineId: null,
+				slotId: null,
+				variantId: null,
 				takeId: null,
 				beatId: null
 			};

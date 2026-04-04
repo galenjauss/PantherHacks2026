@@ -1,48 +1,18 @@
 import { json } from "@sveltejs/kit";
 import { OPENROUTER_API_KEY } from "$env/static/private";
 import { createOpenAI } from "@ai-sdk/openai";
-import { generateText, tool } from "ai";
-import { z } from "zod";
+import { generateText } from "ai";
 import type { RequestHandler } from "./$types";
 import promptTemplate from "./prompt.md?raw";
-import {
-	buildAnalysisSegments,
-	DEFAULT_ANALYSIS_SEGMENT_OPTIONS,
-	normalizeMs,
-	type AnalysisSegmentOptions,
-	type AnalysisWordLabel
-} from "$lib/video/analysis-segments";
+import type {
+	AnalyzeTranscriptResponse,
+	WordSemanticLabel,
+	WordStatus
+} from "$lib/types/autocut";
 
 const openrouter = createOpenAI({
 	baseURL: "https://openrouter.ai/api/v1",
 	apiKey: OPENROUTER_API_KEY
-});
-
-const wordLabelsSchema = z.object({
-	labels: z.array(
-		z.object({
-			index: z.number().describe("The word index (0-based, matching the input order)"),
-			category: z.enum(["good", "filler_words", "retake"]).describe(
-				"good = default currently selected attempt for a beat, filler_words = um/uh/like/you know/basically/etc, retake = alternate attempt for that beat that can be swapped in later"
-			),
-			takeId: z
-				.string()
-				.trim()
-				.min(1)
-				.nullable()
-				.describe(
-					"Identifier for the overall take attempt this word belongs to, such as take_1 or take_2. Use null when the word is not part of a script take."
-				),
-			beatId: z
-				.string()
-				.trim()
-				.min(1)
-				.nullable()
-				.describe(
-					"Identifier for the script beat or line this word belongs to. Reuse the same beatId across different takes of the same intended clip."
-				)
-		})
-	)
 });
 
 interface WordInput {
@@ -52,8 +22,21 @@ interface WordInput {
 	confidence: number;
 }
 
+function normalizeId(value: unknown): string | null {
+	if (typeof value !== "string") return null;
+
+	const normalized = value.trim();
+	return normalized.length > 0 ? normalized : null;
+}
+
+function normalizeOrder(value: unknown): number | null {
+	if (typeof value !== "number" || !Number.isFinite(value)) return null;
+
+	return Math.max(1, Math.round(value));
+}
+
 function validateLabelCoverage(
-	labels: AnalysisWordLabel[],
+	labels: WordSemanticLabel[],
 	expectedWordCount: number
 ): string | null {
 	const seen = new Set<number>();
@@ -81,179 +64,341 @@ function validateLabelCoverage(
 	return null;
 }
 
-function canonicalizeLabels(labels: AnalysisWordLabel[]): AnalysisWordLabel[] {
-	const takeIds = new Map<string, string>();
-	const beatIds = new Map<string, string>();
-	let nextTakeNumber = 1;
-	let nextBeatNumber = 1;
-
-	return labels.map((label) => {
-		const rawTakeId = typeof label.takeId === "string" ? label.takeId.trim() : null;
-		const rawBeatId = typeof label.beatId === "string" ? label.beatId.trim() : null;
-
-		let takeId: string | null = null;
-		let beatId: string | null = null;
-
-		if (rawTakeId) {
-			takeId = takeIds.get(rawTakeId) ?? `take_${nextTakeNumber}`;
-			if (!takeIds.has(rawTakeId)) {
-				takeIds.set(rawTakeId, takeId);
-				nextTakeNumber += 1;
-			}
-		}
-
-		if (rawBeatId) {
-			beatId = beatIds.get(rawBeatId) ?? `beat_${nextBeatNumber}`;
-			if (!beatIds.has(rawBeatId)) {
-				beatIds.set(rawBeatId, beatId);
-				nextBeatNumber += 1;
-			}
-		}
-
-		return {
-			...label,
-			takeId,
-			beatId
-		};
-	});
-}
-
-function inferTakeIdsFromBeatProgression(labels: AnalysisWordLabel[]): AnalysisWordLabel[] {
-	const beatOrder = new Map<string, number>();
-	let nextBeatOrder = 1;
-	let currentTake = 1;
-	let lastBeatOrder: number | null = null;
-
-	function getBeatOrder(beatId: string): number {
-		const existing = beatOrder.get(beatId);
-		if (existing) return existing;
-
-		const inferredOrder = Number(beatId.replace(/^beat_/, ""));
-		const order =
-			Number.isInteger(inferredOrder) && inferredOrder > 0 ? inferredOrder : nextBeatOrder;
-
-		beatOrder.set(beatId, order);
-		nextBeatOrder = Math.max(nextBeatOrder, order + 1);
-
-		return order;
-	}
-
-	return labels.map((label) => {
-		if (!label.beatId) {
-			return label;
-		}
-
-		const currentBeatOrder = getBeatOrder(label.beatId);
-		if (lastBeatOrder !== null && currentBeatOrder < lastBeatOrder) {
-			currentTake += 1;
-		}
-
-		lastBeatOrder = currentBeatOrder;
-
-		return {
-			...label,
-			takeId: `take_${currentTake}`
-		};
-	});
-}
-
-function normalizeTakeIds(labels: AnalysisWordLabel[]): AnalysisWordLabel[] {
-	const takeIds = new Set(
-		labels.map((label) => label.takeId).filter((takeId): takeId is string => Boolean(takeId))
-	);
-
-	if (takeIds.size > 1) {
-		return labels;
-	}
-
-	return inferTakeIdsFromBeatProgression(labels);
-}
-
-function validateGroupingIds(labels: AnalysisWordLabel[]): string | null {
+function validateSemanticIds(labels: WordSemanticLabel[]): string | null {
 	for (const label of labels) {
-		if (label.category !== "filler_words") {
-			if (!label.takeId) {
-				return `LLM omitted takeId for ${label.category} index ${label.index}`;
+		const requiresSemanticIds = label.status === "selected" || label.status === "alternate";
+
+		if (requiresSemanticIds) {
+			if (!label.lineId) {
+				return `LLM omitted lineId for ${label.status} index ${label.index}`;
 			}
 
-			if (!label.beatId) {
-				return `LLM omitted beatId for ${label.category} index ${label.index}`;
+			if (typeof label.lineOrder !== "number") {
+				return `LLM omitted lineOrder for ${label.status} index ${label.index}`;
 			}
+
+			if (!label.slotId) {
+				return `LLM omitted slotId for ${label.status} index ${label.index}`;
+			}
+
+			if (typeof label.slotOrder !== "number") {
+				return `LLM omitted slotOrder for ${label.status} index ${label.index}`;
+			}
+
+			if (!label.variantId) {
+				return `LLM omitted variantId for ${label.status} index ${label.index}`;
+			}
+		}
+
+		if (label.slotId && !label.lineId) {
+			return `LLM returned slotId without lineId for index ${label.index}`;
+		}
+
+		if (label.variantId && !label.slotId) {
+			return `LLM returned variantId without slotId for index ${label.index}`;
+		}
+
+		if (label.lockId && !label.variantId) {
+			return `LLM returned lockId without variantId for index ${label.index}`;
 		}
 	}
 
 	return null;
 }
 
+function canonicalizeLabels(labels: WordSemanticLabel[]): WordSemanticLabel[] {
+	const normalized = labels.map((label) => ({
+		index: label.index,
+		lineId: normalizeId(label.lineId),
+		lineOrder: normalizeOrder(label.lineOrder),
+		slotId: normalizeId(label.slotId),
+		slotOrder: normalizeOrder(label.slotOrder),
+		variantId: normalizeId(label.variantId),
+		lockId: normalizeId(label.lockId),
+		status: label.status
+	}));
+	const lineSeeds = new Map<string, { order: number | null; firstIndex: number }>();
+	const slotSeeds = new Map<
+		string,
+		{
+			rawLineId: string;
+			rawSlotId: string;
+			rawSlotOrder: number | null;
+			firstIndex: number;
+		}
+	>();
+	const variantSeeds = new Map<
+		string,
+		{
+			rawSlotKey: string;
+			rawVariantId: string;
+			firstIndex: number;
+			status: WordStatus;
+		}
+	>();
+	const lockSeeds = new Map<
+		string,
+		{
+			rawVariantKey: string;
+			rawLockId: string;
+			firstIndex: number;
+		}
+	>();
+
+	for (const label of normalized) {
+		if (label.lineId) {
+			const existing = lineSeeds.get(label.lineId);
+			lineSeeds.set(label.lineId, {
+				order:
+					existing?.order === null
+						? label.lineOrder
+						: label.lineOrder === null
+							? existing?.order ?? null
+							: Math.min(existing?.order ?? label.lineOrder, label.lineOrder),
+				firstIndex: Math.min(existing?.firstIndex ?? label.index, label.index)
+			});
+		}
+
+		if (label.lineId && label.slotId) {
+			const slotKey = `${label.lineId}::${label.slotId}`;
+			const existing = slotSeeds.get(slotKey);
+			slotSeeds.set(slotKey, {
+				rawLineId: label.lineId,
+				rawSlotId: label.slotId,
+				rawSlotOrder:
+					existing?.rawSlotOrder === null
+						? label.slotOrder
+						: label.slotOrder === null
+							? existing?.rawSlotOrder ?? null
+							: Math.min(existing?.rawSlotOrder ?? label.slotOrder, label.slotOrder),
+				firstIndex: Math.min(existing?.firstIndex ?? label.index, label.index)
+			});
+
+			if (label.variantId) {
+				const variantKey = `${slotKey}::${label.variantId}`;
+				const existingVariant = variantSeeds.get(variantKey);
+				variantSeeds.set(variantKey, {
+					rawSlotKey: slotKey,
+					rawVariantId: label.variantId,
+					firstIndex: Math.min(existingVariant?.firstIndex ?? label.index, label.index),
+					status:
+						existingVariant?.status === "selected" || label.status === "selected"
+							? "selected"
+							: label.status
+				});
+
+				if (label.lockId) {
+					const lockKey = `${variantKey}::${label.lockId}`;
+					const existingLock = lockSeeds.get(lockKey);
+					lockSeeds.set(lockKey, {
+						rawVariantKey: variantKey,
+						rawLockId: label.lockId,
+						firstIndex: Math.min(existingLock?.firstIndex ?? label.index, label.index)
+					});
+				}
+			}
+		}
+	}
+
+	const canonicalLineMap = new Map(
+		[...lineSeeds.entries()]
+			.sort(
+				(left, right) =>
+					(left[1].order ?? Number.MAX_SAFE_INTEGER) -
+						(right[1].order ?? Number.MAX_SAFE_INTEGER) ||
+					left[1].firstIndex - right[1].firstIndex
+			)
+			.map(([rawLineId], index) => [
+				rawLineId,
+				{
+					lineId: `line_${index + 1}`,
+					lineOrder: index + 1
+				}
+			])
+	);
+	const slotCountsByLine = new Map<string, number>();
+	const canonicalSlotMap = new Map(
+		[...slotSeeds.entries()]
+			.sort((left, right) => {
+				const leftLine = canonicalLineMap.get(left[1].rawLineId);
+				const rightLine = canonicalLineMap.get(right[1].rawLineId);
+
+				return (
+					(leftLine?.lineOrder ?? Number.MAX_SAFE_INTEGER) -
+						(rightLine?.lineOrder ?? Number.MAX_SAFE_INTEGER) ||
+					(left[1].rawSlotOrder ?? Number.MAX_SAFE_INTEGER) -
+						(right[1].rawSlotOrder ?? Number.MAX_SAFE_INTEGER) ||
+					left[1].firstIndex - right[1].firstIndex
+				);
+			})
+			.map(([slotKey, seed], index) => {
+				const line = canonicalLineMap.get(seed.rawLineId);
+				const currentCount = slotCountsByLine.get(seed.rawLineId) ?? 0;
+				const slotOrder = currentCount + 1;
+
+				slotCountsByLine.set(seed.rawLineId, slotOrder);
+
+				return [
+					slotKey,
+					{
+						slotId: `slot_${index + 1}`,
+						slotOrder,
+						lineId: line?.lineId ?? null,
+						lineOrder: line?.lineOrder ?? null
+					}
+				];
+			})
+	);
+	const canonicalVariantMap = new Map(
+		[...variantSeeds.entries()]
+			.sort((left, right) => {
+				const leftSlot = canonicalSlotMap.get(left[1].rawSlotKey);
+				const rightSlot = canonicalSlotMap.get(right[1].rawSlotKey);
+
+				return (
+					(leftSlot?.lineOrder ?? Number.MAX_SAFE_INTEGER) -
+						(rightSlot?.lineOrder ?? Number.MAX_SAFE_INTEGER) ||
+					(leftSlot?.slotOrder ?? Number.MAX_SAFE_INTEGER) -
+						(rightSlot?.slotOrder ?? Number.MAX_SAFE_INTEGER) ||
+					Number(right[1].status === "selected") - Number(left[1].status === "selected") ||
+					left[1].firstIndex - right[1].firstIndex
+				);
+			})
+			.map(([variantKey], index) => [variantKey, `variant_${index + 1}`])
+	);
+	const canonicalLockMap = new Map(
+		[...lockSeeds.entries()]
+			.sort((left, right) => {
+				const leftVariant = canonicalVariantMap.get(left[1].rawVariantKey) ?? "";
+				const rightVariant = canonicalVariantMap.get(right[1].rawVariantKey) ?? "";
+
+				return leftVariant.localeCompare(rightVariant) || left[1].firstIndex - right[1].firstIndex;
+			})
+			.map(([lockKey], index) => [lockKey, `lock_${index + 1}`])
+	);
+
+	return normalized.map((label) => {
+		const line = label.lineId ? canonicalLineMap.get(label.lineId) : null;
+		const rawSlotKey = label.lineId && label.slotId ? `${label.lineId}::${label.slotId}` : null;
+		const slot = rawSlotKey ? canonicalSlotMap.get(rawSlotKey) : null;
+		const rawVariantKey = rawSlotKey && label.variantId ? `${rawSlotKey}::${label.variantId}` : null;
+		const rawLockKey = rawVariantKey && label.lockId ? `${rawVariantKey}::${label.lockId}` : null;
+
+		return {
+			index: label.index,
+			lineId: line?.lineId ?? null,
+			lineOrder: line?.lineOrder ?? null,
+			slotId: slot?.slotId ?? null,
+			slotOrder: slot?.slotOrder ?? null,
+			variantId: rawVariantKey ? canonicalVariantMap.get(rawVariantKey) ?? null : null,
+			lockId: rawLockKey ? canonicalLockMap.get(rawLockKey) ?? null : null,
+			status: label.status
+		} satisfies WordSemanticLabel;
+	});
+}
+
+const VALID_STATUSES = new Set(["selected", "alternate", "filler", "discarded"]);
+
+function parseLabelsFromJson(raw: string, wordCount: number): WordSemanticLabel[] | null {
+	// Strip markdown fences if present
+	let cleaned = raw.trim();
+	if (cleaned.startsWith("```")) {
+		cleaned = cleaned.replace(/^```(?:json)?\s*\n?/, "").replace(/\n?```\s*$/, "");
+	}
+
+	let parsed: unknown;
+	try {
+		parsed = JSON.parse(cleaned);
+	} catch {
+		return null;
+	}
+
+	// Accept { labels: [...] } or bare [...]
+	let labelArray: unknown[];
+	if (Array.isArray(parsed)) {
+		labelArray = parsed;
+	} else if (parsed && typeof parsed === "object" && "labels" in parsed && Array.isArray((parsed as { labels: unknown }).labels)) {
+		labelArray = (parsed as { labels: unknown[] }).labels;
+	} else {
+		return null;
+	}
+
+	return labelArray.map((item) => {
+		const obj = item as Record<string, unknown>;
+		const status = typeof obj.status === "string" && VALID_STATUSES.has(obj.status)
+			? (obj.status as WordStatus)
+			: "discarded";
+
+		return {
+			index: typeof obj.index === "number" ? obj.index : 0,
+			lineId: typeof obj.lineId === "string" ? obj.lineId : null,
+			lineOrder: typeof obj.lineOrder === "number" ? obj.lineOrder : null,
+			slotId: typeof obj.slotId === "string" ? obj.slotId : null,
+			slotOrder: typeof obj.slotOrder === "number" ? obj.slotOrder : null,
+			variantId: typeof obj.variantId === "string" ? obj.variantId : null,
+			lockId: typeof obj.lockId === "string" ? obj.lockId : null,
+			status
+		} satisfies WordSemanticLabel;
+	});
+}
+
 export const POST: RequestHandler = async ({ request }) => {
-	const { words, options } = await request.json();
+	const { words } = await request.json();
 
 	if (!Array.isArray(words) || words.length === 0) {
 		return json({ error: "No words provided" }, { status: 400 });
 	}
 
-	const segmentOptions: AnalysisSegmentOptions = {
-		deadSpaceThresholdMs: normalizeMs(
-			options?.deadSpaceThresholdMs,
-			DEFAULT_ANALYSIS_SEGMENT_OPTIONS.deadSpaceThresholdMs,
-			{ min: 0, max: 3000 }
-		),
-		clipEndTrimMs: normalizeMs(options?.clipEndTrimMs, DEFAULT_ANALYSIS_SEGMENT_OPTIONS.clipEndTrimMs, {
-			min: 0,
-			max: 2000
-		})
-	};
-
 	const timestampedTranscript = words
-		.map((w: { text: string; start: number; end: number; confidence: number }, i: number) =>
-			`${i}: [${w.start}-${w.end}] "${w.text}"`
+		.map(
+			(w: { text: string; start: number; end: number; confidence: number }, index: number) =>
+				`${index}: [${w.start}-${w.end}] "${w.text}"`
 		)
 		.join("\n");
+	const plainTranscript = words.map((word: { text: string }) => word.text).join(" ");
 
-	const plainTranscript = words
-		.map((w: { text: string }) => w.text)
-		.join(" ");
-
-	const tools = {
-		label_words: tool({
-			description: "Label each word in the transcript with a category, take identifier, and beat identifier.",
-			inputSchema: wordLabelsSchema
-		})
-	};
+	const prompt = promptTemplate
+		.replace("{{plainTranscript}}", plainTranscript)
+		.replace("{{timestampedTranscript}}", timestampedTranscript)
+		.replace(/\{\{wordCount\}\}/g, String(words.length))
+		.replace("{{lastIndex}}", String(words.length - 1));
 
 	const result = await generateText({
-		model: openrouter("anthropic/claude-sonnet-4-6"),
-		tools,
-		toolChoice: { type: "tool", toolName: "label_words" },
+		model: openrouter("openai/gpt-5.4"),
 		messages: [
 			{
 				role: "user",
-				content: promptTemplate
-					.replace("{{plainTranscript}}", plainTranscript)
-					.replace("{{timestampedTranscript}}", timestampedTranscript)
-					.replace(/\{\{wordCount\}\}/g, String(words.length))
-					.replace("{{lastIndex}}", String(words.length - 1))
+				content: prompt
 			}
 		]
 	});
 
-	const labelCall = result.toolCalls.find(
-		(tc) => tc.toolName === "label_words"
-	);
+	const rawText = result.text;
+	const llmOutput = { raw: rawText };
 
-	if (!labelCall) {
-		return json({ error: "LLM did not return labels" }, { status: 500 });
+	const rawLabels = parseLabelsFromJson(rawText, words.length);
+
+	if (!rawLabels) {
+		return json({ error: "LLM did not return valid JSON labels", llmOutput }, { status: 502 });
 	}
 
-	const rawLabels = (labelCall as { input: { labels: AnalysisWordLabel[] } }).input.labels;
-	const labels = normalizeTakeIds(canonicalizeLabels(rawLabels));
-	const validationError = validateLabelCoverage(labels, words.length) ?? validateGroupingIds(labels);
+	const coverageError = validateLabelCoverage(rawLabels, words.length);
+
+	if (coverageError) {
+		return json({ error: coverageError, llmOutput }, { status: 502 });
+	}
+
+	const labels = canonicalizeLabels(rawLabels);
+	const validationError = validateSemanticIds(labels);
 
 	if (validationError) {
-		return json({ error: validationError }, { status: 502 });
+		return json({ error: validationError, llmOutput }, { status: 502 });
 	}
 
-	const segments = buildAnalysisSegments(words as WordInput[], labels, segmentOptions);
+	const response: AnalyzeTranscriptResponse = {
+		labels,
+		llmOutput
+	};
 
-	return json({ labels, segments });
+	return json(response);
 };

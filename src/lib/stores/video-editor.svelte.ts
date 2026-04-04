@@ -4,30 +4,47 @@ import type {
 	AutocutAnalysisSegment,
 	AutocutJob,
 	AutocutJobResponse,
+	AnalyzeTranscriptResponse,
+	DebugProblem,
 	AutocutTranscriptWord,
-	CreateAutocutJobRequest
+	CreateAutocutJobRequest,
+	SpeechChunk,
+	WordSemanticLabel
 } from "$lib/types/autocut";
 import {
 	buildAnalysisSegments,
 	DEFAULT_ANALYSIS_SEGMENT_OPTIONS
 } from "$lib/video/analysis-segments";
+import {
+	buildAnalysisSegmentRefs,
+	type AnalysisSegmentRef,
+	type EditorBeatGroup,
+	type EditorBeatVariant,
+	buildSemanticModel
+} from "$lib/video/derived-beats";
+import { buildSpeechChunks } from "$lib/video/word-chunks";
 
 export type EditorCutCategory = "filler_words" | "dead_space" | "retake";
 export type EditorFilter = "all" | EditorCutCategory;
-
-type WordLabelCategory = "good" | "filler_words" | "retake";
-
-interface WordLabel {
-	index: number;
-	category: WordLabelCategory;
-	takeId?: string | null;
-	beatId?: string | null;
-}
 
 interface SegmentMeta {
 	label: string;
 	shortLabel: string;
 	color: string;
+}
+
+interface DebugLabelRow {
+	index: number;
+	word: string;
+	start: number | null;
+	end: number | null;
+	status: WordSemanticLabel["status"];
+	lineId: string | null;
+	lineOrder: number | null;
+	slotId: string | null;
+	slotOrder: number | null;
+	variantId: string | null;
+	lockId: string | null;
 }
 
 type WorkflowStepState = "done" | "active" | "pending";
@@ -39,42 +56,7 @@ export interface EditorCutSegment extends Omit<AutocutAnalysisSegment, "category
 	label: string;
 	shortLabel: string;
 	color: string;
-}
-
-interface AnalysisSegmentRef {
-	id: string;
-	index: number;
-	segment: AutocutAnalysisSegment;
-}
-
-interface BeatVariantAggregate {
-	beatId: string;
-	takeId: string;
-	refs: AnalysisSegmentRef[];
-	goodRefs: AnalysisSegmentRef[];
-	retakeRefs: AnalysisSegmentRef[];
-}
-
-interface EditorBeatVariant {
-	id: string;
-	beatId: string;
-	takeId: string;
-	label: string;
-	kind: "good" | "retake";
-	start: number;
-	end: number;
-	durationMs: number;
-	previewText: string;
-	fillerCount: number;
-	refs: AnalysisSegmentRef[];
-	playableRefs: AnalysisSegmentRef[];
-}
-
-interface EditorBeatGroup {
-	beatId: string;
-	start: number;
-	end: number;
-	variants: EditorBeatVariant[];
+	locked: boolean;
 }
 
 interface EditorClipStripBeatBlock {
@@ -83,7 +65,8 @@ interface EditorClipStripBeatBlock {
 	widthPct: number;
 	activeLabel: string;
 	variants: Array<
-		Pick<EditorBeatVariant, "id" | "label" | "kind" | "durationMs" | "start"> & {
+		Pick<EditorBeatVariant, "id" | "variantId" | "label" | "durationMs" | "start"> & {
+			kind: EditorBeatVariant["status"];
 			isSelected: boolean;
 			fillPct: number;
 		}
@@ -129,6 +112,7 @@ const CLIP_STRIP_LABEL_LIMIT = 12;
 const TIMELINE_BAR_COUNT = 96;
 const TIMELINE_LABEL_COUNT = 8;
 const PREVIEW_EPSILON_MS = 4;
+const PREVIEW_SEEK_SETTLE_MS = 120;
 
 function clamp(value: number, min: number, max: number): number {
 	return Math.min(max, Math.max(min, value));
@@ -160,18 +144,47 @@ function clipStripLabel(segment: AutocutAnalysisSegment): string {
 	return `${text.slice(0, CLIP_STRIP_LABEL_LIMIT - 1)}…`;
 }
 
-function buildPlaybackSegments(segments: AutocutAnalysisSegment[]): AutocutAnalysisSegment[] {
+function gapContainsCutContent(
+	gapStart: number,
+	gapEnd: number,
+	allSegments: AutocutAnalysisSegment[]
+): boolean {
+	for (const seg of allSegments) {
+		if (seg.start >= gapEnd) break;
+		if (seg.end <= gapStart) continue;
+
+		if (seg.category === "filler_words" || seg.category === "retake") {
+			return true;
+		}
+	}
+
+	return false;
+}
+
+function buildPlaybackSegments(
+	segments: AutocutAnalysisSegment[],
+	deadSpaceThresholdMs: number,
+	allSegments: AutocutAnalysisSegment[]
+): AutocutAnalysisSegment[] {
 	const merged: AutocutAnalysisSegment[] = [];
 
 	for (const segment of segments) {
 		if (segment.category !== "good") continue;
 
 		const last = merged[merged.length - 1];
-		if (last && segment.start <= last.end + PREVIEW_EPSILON_MS) {
-			last.end = Math.max(last.end, segment.end);
-			last.text = [last.text, segment.text].filter(Boolean).join(" ").trim();
-			last.takeId = last.takeId === segment.takeId ? last.takeId : null;
-			continue;
+		if (last) {
+			const gapMs = segment.start - last.end;
+
+			// Only merge segments that move forward in video time (gap >= 0).
+			// A negative gap means we're jumping backward to a different take/
+			// variant — those must stay as separate playback segments so the
+			// player seeks to the correct position.
+			if (gapMs >= 0 && gapMs <= deadSpaceThresholdMs && !gapContainsCutContent(last.end, segment.start, allSegments)) {
+				last.end = Math.max(last.end, segment.end);
+				last.text = [last.text, segment.text].filter(Boolean).join(" ").trim();
+				last.takeId = last.takeId === segment.takeId ? last.takeId : null;
+				continue;
+			}
 		}
 
 		merged.push({ ...segment });
@@ -180,142 +193,32 @@ function buildPlaybackSegments(segments: AutocutAnalysisSegment[]): AutocutAnaly
 	return merged;
 }
 
-function buildAnalysisSegmentRefs(segments: AutocutAnalysisSegment[]): AnalysisSegmentRef[] {
-	return segments.map((segment, index) => ({
-		id: segmentId(index),
-		index,
-		segment
-	}));
-}
-
-function variantBaseId(beatId: string, takeId: string): string {
-	return `${beatId}::${takeId}`;
-}
-
 function humanizeId(id: string, prefix: string): string {
 	const num = id.replace(new RegExp(`^${prefix}_`), "");
 	return `${prefix.charAt(0).toUpperCase()}${prefix.slice(1)} ${num}`;
 }
 
-function humanizeBeatId(beatId: string): string {
-	return humanizeId(beatId, "beat");
+function humanizeSlotId(slotId: string): string {
+	return humanizeId(slotId, "slot");
 }
 
-function humanizeTakeId(takeId: string): string {
-	return humanizeId(takeId, "take");
-}
+function safeParseJson(value: string): unknown {
+	if (!value.trim()) return null;
 
-function variantPreviewText(refs: AnalysisSegmentRef[]): string {
-	const text = refs
-		.map((ref) => ref.segment.text.trim())
-		.filter(Boolean)
-		.join(" ");
-
-	return text || "—";
-}
-
-function buildBeatGroups(refs: AnalysisSegmentRef[]): EditorBeatGroup[] {
-	const groups = new Map<string, { beatId: string; variants: BeatVariantAggregate[] }>();
-
-	for (const ref of refs) {
-		const { beatId, takeId, category } = ref.segment;
-		if (!beatId || !takeId || category === "dead_space") continue;
-
-		const beatGroup = groups.get(beatId) ?? {
-			beatId,
-			variants: []
-		};
-
-		let aggregate = beatGroup.variants.find((item) => item.takeId === takeId);
-		if (!aggregate) {
-			aggregate = {
-				beatId,
-				takeId,
-				refs: [],
-				goodRefs: [],
-				retakeRefs: []
-			};
-			beatGroup.variants.push(aggregate);
-		}
-
-		aggregate.refs.push(ref);
-		if (category === "good") {
-			aggregate.goodRefs.push(ref);
-		} else if (category === "retake") {
-			aggregate.retakeRefs.push(ref);
-		}
-
-		groups.set(beatId, beatGroup);
+	try {
+		return JSON.parse(value);
+	} catch {
+		return value;
 	}
+}
 
-	return [...groups.values()]
-		.map((group) => {
-			const variants = group.variants
-				.flatMap((aggregate) => {
-					const refsByTime = [...aggregate.refs].sort(
-						(left, right) => left.segment.start - right.segment.start
-					);
-					const goodRefs = [...aggregate.goodRefs].sort(
-						(left, right) => left.segment.start - right.segment.start
-					);
-					const retakeRefs = [...aggregate.retakeRefs].sort(
-						(left, right) => left.segment.start - right.segment.start
-					);
-
-					const buildVariant = (
-						kind: EditorBeatVariant["kind"],
-						playableRefs: AnalysisSegmentRef[],
-						label: string
-					): EditorBeatVariant | null => {
-						if (playableRefs.length === 0) return null;
-
-						const start = playableRefs[0].segment.start;
-						const end = playableRefs[playableRefs.length - 1].segment.end;
-						const rangeRefs = refsByTime.filter(
-							(ref) => ref.segment.start >= start && ref.segment.end <= end
-						);
-
-						return {
-							id: `${variantBaseId(aggregate.beatId, aggregate.takeId)}::${kind}`,
-							beatId: aggregate.beatId,
-							takeId: aggregate.takeId,
-							label,
-							kind,
-							start,
-							end,
-							durationMs: Math.max(end - start, 0),
-							previewText: variantPreviewText(playableRefs),
-							fillerCount: rangeRefs.filter(
-								(ref) => ref.segment.category === "filler_words"
-							).length,
-							refs: rangeRefs,
-							playableRefs
-						};
-					};
-
-					const takeName = humanizeTakeId(aggregate.takeId);
-					const builtVariants = [
-						buildVariant(
-							"good",
-							goodRefs,
-							retakeRefs.length > 0 ? takeName : takeName
-						),
-						buildVariant("retake", retakeRefs, `${takeName} (retake)`)
-					].filter((variant): variant is EditorBeatVariant => Boolean(variant));
-
-					return builtVariants;
-				})
-				.sort((left, right) => left.start - right.start);
-
-			return {
-				beatId: group.beatId,
-				start: Math.min(...variants.map((variant) => variant.start)),
-				end: Math.max(...variants.map((variant) => variant.end)),
-				variants
-			} satisfies EditorBeatGroup;
-		})
-		.filter((group) => group.variants.length > 0)
-		.sort((left, right) => left.start - right.start);
+function joinTexts(values: string[]): string {
+	return values
+		.map((value) => value.trim())
+		.filter(Boolean)
+		.join(" ")
+		.replace(/\s+/g, " ")
+		.trim();
 }
 
 class VideoEditorState {
@@ -328,7 +231,7 @@ class VideoEditorState {
 	currentPreviewSegmentIndex = $state(0);
 	activeFilter = $state<EditorFilter>("all");
 	selectedCutIds = $state<string[]>([]);
-	selectedBeatVariantIds = $state<Record<string, string>>({});
+	selectedSlotVariantIds = $state<Record<string, string>>({});
 	deadSpaceThreshold = $state(DEFAULT_ANALYSIS_SEGMENT_OPTIONS.deadSpaceThresholdMs);
 	clipEndTrim = $state(DEFAULT_ANALYSIS_SEGMENT_OPTIONS.clipEndTrimMs);
 	cutToggles = $state<Record<EditorCutCategory, boolean>>({
@@ -344,11 +247,20 @@ class VideoEditorState {
 	transcriptStatus = $state("");
 	transcriptText = $state("");
 	transcriptWords = $state<AutocutTranscriptWord[]>([]);
-	wordLabels = $state<WordLabel[]>([]);
+	wordLabels = $state<WordSemanticLabel[]>([]);
+	analysisLLMOutputJson = $state("");
 	transcriptError = $state("");
 	analysisError = $state("");
 	jobError = $state("");
 	job = $state<AutocutJob | null>(null);
+
+	get selectedBeatVariantIds(): Record<string, string> {
+		return this.selectedSlotVariantIds;
+	}
+
+	set selectedBeatVariantIds(value: Record<string, string>) {
+		this.selectedSlotVariantIds = value;
+	}
 
 	private currentRun = 0;
 	private transcriptPollDelay: ReturnType<typeof setTimeout> | null = null;
@@ -358,6 +270,7 @@ class VideoEditorState {
 	private lastBeatSelectionSignature = "";
 	private previewTimeUpdateHandler: (() => void) | null = null;
 	private previewEndedHandler: (() => void) | null = null;
+	private previewRafId: number | null = null;
 	private videoElement: HTMLVideoElement | null = null;
 
 	get totalDurationMs(): number {
@@ -378,6 +291,146 @@ class VideoEditorState {
 
 	get isReady(): boolean {
 		return Boolean(this.selectedFile && this.wordLabels.length > 0 && !this.isBusy && !this.hasErrors);
+	}
+
+	get hasAnalysisLLMOutput(): boolean {
+		return this.analysisLLMOutputJson.trim().length > 0;
+	}
+
+	get hasDebugExport(): boolean {
+		return this.transcriptWords.length > 0 || this.wordLabels.length > 0 || this.hasAnalysisLLMOutput;
+	}
+
+	private labelDebugRows(): DebugLabelRow[] {
+		return this.wordLabels.map((label) => {
+			const word = this.transcriptWords[label.index];
+
+			return {
+				index: label.index,
+				word: word?.text ?? "",
+				start: word?.start ?? null,
+				end: word?.end ?? null,
+				status: label.status,
+				lineId: label.lineId ?? null,
+				lineOrder: label.lineOrder ?? null,
+				slotId: label.slotId ?? null,
+				slotOrder: label.slotOrder ?? null,
+				variantId: label.variantId ?? null,
+				lockId: label.lockId ?? null
+			};
+		});
+	}
+
+	get semanticModel() {
+		if (this.transcriptWords.length === 0 || this.wordLabels.length === 0) {
+			return {
+				slotGroups: [] as EditorBeatGroup[],
+				lineSummaries: [],
+				slotSummaries: [],
+				variantSummaries: [],
+				problems: [] as DebugProblem[]
+			};
+		}
+
+		return buildSemanticModel(this.transcriptWords, this.wordLabels, this.speechChunks);
+	}
+
+	get debugExportJson(): string {
+		const selectedCutIds = new Set(this.selectedCutIds);
+		const labelRows = this.labelDebugRows();
+		const semanticModel = this.semanticModel;
+
+		return JSON.stringify(
+			{
+				exportedAt: new Date().toISOString(),
+				file: this.selectedFile
+					? {
+							name: this.selectedFile.name,
+							size: this.selectedFile.size,
+							type: this.selectedFile.type || null,
+							lastModified: this.selectedFile.lastModified
+						}
+					: null,
+				status: {
+					label: this.statusLabel,
+					description: this.statusDescription,
+					transcriptId: this.transcriptId || null,
+					transcriptStatus: this.transcriptStatus || null,
+					transcriptError: this.transcriptError || null,
+					analysisError: this.analysisError || null,
+					jobError: this.jobError || null
+				},
+				settings: {
+					deadSpaceThresholdMs: this.deadSpaceThreshold,
+					clipEndTrimMs: this.clipEndTrim,
+					cutToggles: this.cutToggles,
+					previewMode: this.previewMode
+				},
+				selection: {
+					selectedCutIds: this.selectedCutIds,
+					selectedSlotVariantIds: this.selectedSlotVariantIds
+				},
+				transcript: {
+					text: this.transcriptText,
+					wordCount: this.transcriptWords.length,
+					words: this.transcriptWords
+				},
+				llm: {
+					rawOutput: safeParseJson(this.analysisLLMOutputJson),
+					wordLabels: this.wordLabels,
+					labeledWords: labelRows,
+					lineSummaries: semanticModel.lineSummaries,
+					slotSummaries: semanticModel.slotSummaries,
+					variantSummaries: semanticModel.variantSummaries,
+					problems: semanticModel.problems
+				},
+				derived: {
+					analysisSegments: this.analysisSegments,
+					speechChunks: this.speechChunks,
+					slotGroups: this.slotGroups.map((group) => ({
+						slotId: group.slotId,
+						start: group.start,
+						end: group.end,
+						lineId: group.lineId,
+						lineOrder: group.lineOrder,
+						slotOrder: group.slotOrder,
+						selectedVariantId:
+							this.selectedVariantForGroup(group)?.variantId ?? group.variants[0]?.variantId ?? null,
+						variants: group.variants.map((variant) => ({
+							id: variant.id,
+							label: variant.label,
+							status: variant.status,
+							variantId: variant.variantId,
+							start: variant.start,
+							end: variant.end,
+							durationMs: variant.durationMs,
+							previewText: variant.previewText,
+							chunkCount: variant.chunkCount,
+							isStitched: variant.isStitched,
+							internalPauseDurationMs: variant.internalPauseDurationMs,
+							sourceChunks: variant.sourceChunks,
+							wordRanges: variant.wordRanges,
+							lockGroups: variant.lockGroups
+						}))
+					})),
+					composedAnalysisSegments: this.composedAnalysisSegments,
+					playbackSegments: this.playbackSegments,
+					cutSegments: this.cutSegments.map((segment) => ({
+						...segment,
+						isSelected: segment.locked || selectedCutIds.has(segment.id)
+					}))
+				},
+				stats: {
+					selectedCutCount: this.selectedCutCount,
+					selectedCutDurationMs: this.selectedCutDurationMs,
+					cleanDurationMs: this.cleanDurationMs,
+					swappableSlotCount: this.swappableSlotCount,
+					stitchedVariantCount: this.stitchedVariantCount
+				}
+			},
+			null,
+			2
+		);
 	}
 
 	get workflowSteps(): Array<{ label: string; state: WorkflowStepState; glyph: string }> {
@@ -440,13 +493,13 @@ class VideoEditorState {
 			return "Loading the transcript with word-level timestamps from AssemblyAI.";
 		}
 		if (this.analyzing) {
-			return "Coming up with cuts by marking filler words, pauses, and retakes in the transcript.";
+			return "Labeling semantic lines, slots, variants, and removable filler from the transcript.";
 		}
 		if (this.isSyncing) {
 			return "Sending the latest transcript and cut plan to the autocut job.";
 		}
 		if (this.isReady) {
-			return "Preview the applied cuts, inspect the transcript, and refine the plan.";
+			return "Preview the selected slot mix, inspect pause chunks, and refine the cut plan.";
 		}
 		return "The upload is queued for processing.";
 	}
@@ -471,96 +524,188 @@ class VideoEditorState {
 		});
 	}
 
-	get analysisSegmentRefs(): AnalysisSegmentRef[] {
+	get analysisSegmentRefs(): AnalysisSegmentRef<AutocutAnalysisSegment>[] {
 		return buildAnalysisSegmentRefs(this.analysisSegments);
 	}
 
+	get speechChunks(): SpeechChunk[] {
+		if (this.transcriptWords.length === 0) {
+			return [];
+		}
+
+		return buildSpeechChunks(this.transcriptWords, this.wordLabels, this.deadSpaceThreshold);
+	}
+
+	get slotGroups(): EditorBeatGroup[] {
+		return this.semanticModel.slotGroups;
+	}
+
 	get beatGroups(): EditorBeatGroup[] {
-		return buildBeatGroups(this.analysisSegmentRefs);
+		return this.slotGroups;
+	}
+
+	get stitchedVariantCount(): number {
+		return this.slotGroups.filter((group) => {
+			const variant = this.selectedVariantForGroup(group);
+			return Boolean(variant?.isStitched);
+		}).length;
+	}
+
+	get swappableSlotGroups(): EditorBeatGroup[] {
+		return this.slotGroups.filter((group) => group.variants.length > 1);
 	}
 
 	get swappableBeatGroups(): EditorBeatGroup[] {
-		return this.beatGroups.filter((group) => group.variants.length > 1);
+		return this.swappableSlotGroups;
+	}
+
+	get swappableSlotCount(): number {
+		return this.swappableSlotGroups.length;
 	}
 
 	get swappableBeatCount(): number {
-		return this.swappableBeatGroups.length;
+		return this.swappableSlotCount;
 	}
 
-	get beatSelectionSignature(): string {
-		return this.beatGroups
-			.map((group) => `${group.beatId}:${group.variants.map((variant) => variant.id).join(",")}`)
+	get slotSelectionSignature(): string {
+		return this.slotGroups
+			.map((group) => `${group.slotId}:${group.variants.map((variant) => variant.id).join(",")}`)
 			.join("|");
 	}
 
-	get composedSegmentRefs(): AnalysisSegmentRef[] {
-		const refs = this.analysisSegmentRefs;
-		const beatGroups = buildBeatGroups(refs);
-
-		if (beatGroups.length === 0) {
-			return refs;
-		}
-
-		const groupByBeatId = new Map(beatGroups.map((group) => [group.beatId, group]));
-		const units: Array<{ sortStart: number; sortIndex: number; refs: AnalysisSegmentRef[] }> = [];
-
-		for (const [sortIndex, group] of beatGroups.entries()) {
-			const variant = this.selectedVariantForGroup(group);
-			if (!variant) continue;
-
-			units.push({
-				sortStart: group.start,
-				sortIndex,
-				refs: [...variant.refs].sort(
-					(left, right) => left.segment.start - right.segment.start
-				)
-			});
-		}
-
-		for (const ref of refs) {
-			const beatId = ref.segment.beatId;
-			if (beatId && groupByBeatId.has(beatId)) continue;
-
-			units.push({
-				sortStart: ref.segment.start,
-				sortIndex: beatGroups.length + ref.index,
-				refs: [ref]
-			});
-		}
-
-		return units
-			.sort(
-				(left, right) =>
-					left.sortStart - right.sortStart || left.sortIndex - right.sortIndex
-			)
-			.flatMap((unit) => unit.refs);
+	get beatSelectionSignature(): string {
+		return this.slotSelectionSignature;
 	}
 
-	get baseComposedAnalysisSegments(): AutocutAnalysisSegment[] {
-		const playableRefIds = new Set(
-			this.beatGroups.flatMap(
-				(group) => this.selectedVariantForGroup(group)?.playableRefs.map((ref) => ref.id) ?? []
-			)
+	private segmentMatchesSelectedVariant(
+		segment: AutocutAnalysisSegment,
+		slotId?: string | null,
+		variantId?: string | null
+	): boolean {
+		if (!slotId || !variantId || segment.status === "discarded") return false;
+
+		return segment.slotId === slotId && segment.variantId === variantId;
+	}
+
+	private selectedSlotVariantId(slotId: string): string | null {
+		const group = this.slotGroups.find((value) => value.slotId === slotId);
+		if (!group) return null;
+
+		const selectedVariant = this.selectedVariantForGroup(group);
+
+		return selectedVariant?.variantId ?? group.selectedVariantId ?? null;
+	}
+
+	private deadSpaceIsSelectedPath(
+		segments: AutocutAnalysisSegment[],
+		index: number
+	): boolean {
+		const current = segments[index];
+		if (!current || current.category !== "dead_space") return false;
+
+		let previous: AutocutAnalysisSegment | null = null;
+		for (let cursor = index - 1; cursor >= 0; cursor -= 1) {
+			if (segments[cursor].category === "dead_space") continue;
+			previous = segments[cursor];
+			break;
+		}
+
+		let next: AutocutAnalysisSegment | null = null;
+		for (let cursor = index + 1; cursor < segments.length; cursor += 1) {
+			if (segments[cursor].category === "dead_space") continue;
+			next = segments[cursor];
+			break;
+		}
+
+		return Boolean(
+			previous &&
+			next &&
+			previous.slotId &&
+			previous.slotId === next.slotId &&
+			previous.variantId &&
+			previous.variantId === next.variantId &&
+			this.segmentMatchesSelectedVariant(
+				previous,
+				previous.slotId,
+				this.selectedSlotVariantId(previous.slotId)
+			) &&
+			this.segmentMatchesSelectedVariant(next, next.slotId, this.selectedSlotVariantId(next.slotId))
+		);
+	}
+
+	private normalizedSegment(segment: AutocutAnalysisSegment): AutocutAnalysisSegment {
+		if (segment.category === "dead_space") {
+			return segment;
+		}
+
+		const selectedVariantId = segment.slotId ? this.selectedSlotVariantId(segment.slotId) : null;
+		const isSelectedVariant = this.segmentMatchesSelectedVariant(
+			segment,
+			segment.slotId,
+			selectedVariantId
 		);
 
-		return this.composedSegmentRefs.map((ref) => {
-			if (
-				playableRefIds.has(ref.id) &&
-				ref.segment.category === "retake"
-			) {
-				return {
-					...ref.segment,
-					category: "good" as const
-				};
+		if (segment.category === "filler_words") {
+			if (isSelectedVariant || !segment.slotId) {
+				return segment;
 			}
 
-			return ref.segment;
-		});
+			return {
+				...segment,
+				category: "retake"
+			};
+		}
+
+		if (isSelectedVariant) {
+			return {
+				...segment,
+				category: "good",
+				takeId: segment.variantId ?? segment.takeId ?? null,
+				beatId: segment.slotId ?? segment.beatId ?? null
+			};
+		}
+
+		return {
+			...segment,
+			category: "retake",
+			takeId: segment.variantId ?? segment.takeId ?? null,
+			beatId: segment.slotId ?? segment.beatId ?? null
+		};
+	}
+
+	private segmentIsLocked(
+		segment: AutocutAnalysisSegment,
+		index: number,
+		segments: AutocutAnalysisSegment[]
+	): boolean {
+		if (segment.category === "retake") return true;
+		if (segment.category === "filler_words") {
+			return !this.segmentMatchesSelectedVariant(
+				segment,
+				segment.slotId,
+				segment.slotId ? this.selectedSlotVariantId(segment.slotId) : null
+			);
+		}
+		if (segment.category === "dead_space") {
+			return !this.deadSpaceIsSelectedPath(segments, index);
+		}
+
+		return false;
+	}
+
+	private isCutActive(segment: EditorCutSegment, selected: Set<string>): boolean {
+		if (segment.locked) return true;
+		if (!this.cutToggles[segment.category]) return false;
+
+		return selected.has(segment.id);
+	}
+
+	get normalizedAnalysisSegments(): AutocutAnalysisSegment[] {
+		return this.analysisSegments.map((segment) => this.normalizedSegment(segment));
 	}
 
 	get cutSegments(): EditorCutSegment[] {
-		const composedRefs = this.composedSegmentRefs;
-		const baseSegments = this.baseComposedAnalysisSegments;
+		const baseSegments = this.normalizedAnalysisSegments;
 
 		return baseSegments
 			.map((segment, index) => {
@@ -568,14 +713,16 @@ class VideoEditorState {
 
 				const category = segment.category as EditorCutCategory;
 				const meta = SEGMENT_META[category];
+
 				return {
 					...segment,
-					id: composedRefs[index]?.id ?? segmentId(index),
+					id: this.analysisSegmentRefs[index]?.id ?? segmentId(index),
 					category,
 					durationMs: Math.max(segment.end - segment.start, 0),
 					label: humanizeSegmentText(segment),
 					shortLabel: meta.shortLabel,
-					color: meta.color
+					color: meta.color,
+					locked: this.segmentIsLocked(segment, index, baseSegments)
 				} satisfies EditorCutSegment;
 			})
 			.filter((segment): segment is EditorCutSegment => Boolean(segment));
@@ -628,25 +775,29 @@ class VideoEditorState {
 		}
 
 		const swapText =
-			this.swappableBeatCount > 0
-				? `${this.swappableBeatCount} beat${this.swappableBeatCount === 1 ? " has" : "s have"} alternate takes available to swap. `
+			this.swappableSlotCount > 0
+				? `${this.swappableSlotCount} slot${this.swappableSlotCount === 1 ? " has" : "s have"} alternate variants available to swap. `
+				: "";
+		const stitchText =
+			this.stitchedVariantCount > 0
+				? `${this.stitchedVariantCount} selected slot${this.stitchedVariantCount === 1 ? " is" : "s are"} stitched across multiple pause-based chunks. `
 				: "";
 
 		if (this.cutSegments.length === 0) {
 			return (
-				swapText ||
+				`${swapText}${stitchText}` ||
 				"No removable filler, pauses, or retakes were detected in the current cut plan."
 			);
 		}
 
 		const dominant = [...this.analysisStats].sort((a, b) => b.durationMs - a.durationMs)[0];
-		return `${swapText}${dominant.label} is the largest cleanup opportunity right now. Current selections remove ${this.formatDuration(
+		return `${swapText}${stitchText}${dominant.label} is the largest cleanup opportunity right now. Current selections remove ${this.formatDuration(
 			this.selectedCutDurationMs
 		)} across ${this.selectedCutCount} segments and land at ${this.formatClock(this.cleanDurationMs)} clean runtime.`;
 	}
 
 	get selectionSignature(): string {
-		return this.cutSegments.map((segment) => segment.id).join("|");
+		return this.cutSegments.map((segment) => `${segment.id}:${Number(segment.locked)}`).join("|");
 	}
 
 	get syncSignature(): string {
@@ -662,9 +813,9 @@ class VideoEditorState {
 			fileLastModified: file.lastModified,
 			transcriptId: this.transcriptId,
 			selectedCutIds: [...this.selectedCutIds].sort(),
-			selectedBeatVariantIds: this.beatGroups.map((group) => [
-				group.beatId,
-				this.selectedVariantForGroup(group)?.id ?? ""
+			selectedSlotVariantIds: this.slotGroups.map((group) => [
+				group.slotId,
+				this.selectedVariantForGroup(group)?.variantId ?? ""
 			]),
 			cutToggles: this.cutToggles,
 			deadSpaceThreshold: this.deadSpaceThreshold,
@@ -674,13 +825,17 @@ class VideoEditorState {
 
 	get composedAnalysisSegments(): AutocutAnalysisSegment[] {
 		const selected = new Set(this.selectedCutIds);
-		const composedRefs = this.composedSegmentRefs;
+		const cutSegmentById = new Map(this.cutSegments.map((segment) => [segment.id, segment]));
 
-		return this.baseComposedAnalysisSegments.map((segment, index) => {
+		return this.normalizedAnalysisSegments.map((segment, index) => {
 			if (segment.category === "good") return segment;
 
-			const id = composedRefs[index]?.id ?? segmentId(index);
-			if (this.cutToggles[segment.category] && selected.has(id)) {
+			const id = this.analysisSegmentRefs[index]?.id ?? segmentId(index);
+			const cutSegment = cutSegmentById.get(id);
+
+			if (!cutSegment) return segment;
+			if (cutSegment.locked) return segment;
+			if (this.cutToggles[cutSegment.category] && selected.has(id)) {
 				return segment;
 			}
 
@@ -692,22 +847,78 @@ class VideoEditorState {
 	}
 
 	get playbackSegments(): AutocutAnalysisSegment[] {
-		return buildPlaybackSegments(this.composedAnalysisSegments);
+		if (this.analysisSegmentRefs.length === 0 || this.slotGroups.length === 0) {
+			return [];
+		}
+
+		const selected = new Set(this.selectedCutIds);
+		const cutSegmentById = new Map(this.cutSegments.map((segment) => [segment.id, segment]));
+		const playbackSegments: AutocutAnalysisSegment[] = [];
+
+		for (const group of this.slotGroups) {
+			const variant = this.selectedVariantForGroup(group);
+			if (!variant) continue;
+
+			const matchingRefIndexes = this.analysisSegmentRefs
+				.map((ref, refIndex) => ({ ref, refIndex }))
+				.filter(({ ref }) =>
+					this.segmentMatchesSelectedVariant(ref.segment, group.slotId, variant.variantId)
+				)
+				.map(({ refIndex }) => refIndex);
+
+			if (matchingRefIndexes.length === 0) continue;
+
+			const firstIndex = matchingRefIndexes[0];
+			const lastIndex = matchingRefIndexes[matchingRefIndexes.length - 1];
+
+			for (let refIndex = firstIndex; refIndex <= lastIndex; refIndex += 1) {
+				const ref = this.analysisSegmentRefs[refIndex];
+				const segment = this.analysisSegments[refIndex];
+				const id = ref.id;
+				const cutSegment = cutSegmentById.get(id);
+
+				if (segment.category === "dead_space") {
+					if (!this.deadSpaceIsSelectedPath(this.analysisSegments, refIndex)) continue;
+					if (cutSegment && this.isCutActive(cutSegment, selected)) continue;
+
+					playbackSegments.push({
+						...segment,
+						category: "good"
+					});
+					continue;
+				}
+
+				if (!this.segmentMatchesSelectedVariant(segment, group.slotId, variant.variantId)) {
+					continue;
+				}
+
+				if (segment.category === "filler_words" && cutSegment && this.isCutActive(cutSegment, selected)) {
+					continue;
+				}
+
+				playbackSegments.push({
+					...segment,
+					category: "good",
+					takeId: variant.variantId,
+					beatId: group.slotId
+				});
+			}
+		}
+
+		return buildPlaybackSegments(playbackSegments, this.deadSpaceThreshold, this.analysisSegments);
 	}
 
 	get selectedCutCount(): number {
 		const selected = new Set(this.selectedCutIds);
 
-		return this.cutSegments.filter(
-			(segment) => this.cutToggles[segment.category] && selected.has(segment.id)
-		).length;
+		return this.cutSegments.filter((segment) => this.isCutActive(segment, selected)).length;
 	}
 
 	get selectedCutDurationMs(): number {
 		const selected = new Set(this.selectedCutIds);
 
 		return this.cutSegments
-			.filter((segment) => this.cutToggles[segment.category] && selected.has(segment.id))
+			.filter((segment) => this.isCutActive(segment, selected))
 			.reduce((sum, segment) => sum + segment.durationMs, 0);
 	}
 
@@ -729,17 +940,18 @@ class VideoEditorState {
 			const widthMs = Math.max(maxDurationMs, 600);
 
 			return {
-				id: group.beatId,
-				beatId: group.beatId,
+				id: group.slotId,
+				beatId: group.slotId,
 				activeLabel: selectedVariant?.label ?? "",
 				widthMs,
 				variants: group.variants.map((variant) => ({
 					id: variant.id,
+					variantId: variant.variantId,
 					label: variant.label,
-					kind: variant.kind,
+					kind: variant.status,
 					durationMs: variant.durationMs,
 					start: variant.start,
-					isSelected: selectedVariant?.id === variant.id,
+					isSelected: selectedVariant?.variantId === variant.variantId,
 					fillPct: clamp(Math.round((variant.durationMs / maxDurationMs) * 100), 18, 100)
 				}))
 			};
@@ -761,13 +973,13 @@ class VideoEditorState {
 		const colorMap = new Map<string, string>();
 
 		for (const [index, group] of beatGroups.entries()) {
-			colorMap.set(group.beatId, BEAT_COLORS[index % BEAT_COLORS.length]);
+			colorMap.set(group.slotId, BEAT_COLORS[index % BEAT_COLORS.length]);
 		}
 
 		// Build ordered beat entries with their selected variants
 		const beatEntries = beatGroups
 			.map((group, groupIndex) => {
-				const variant = this.selectedVariantForBeatId(group.beatId);
+				const variant = this.selectedVariantForSlotId(group.slotId);
 				if (!variant) return null;
 				return { group, variant, groupIndex };
 			})
@@ -776,7 +988,7 @@ class VideoEditorState {
 		if (beatEntries.length === 0) return [];
 
 		// Collect cut segments between beats
-		const composedSegments = this.baseComposedAnalysisSegments;
+		const composedSegments = this.cutSegments;
 		let totalMs = 0;
 
 		for (let i = 0; i < beatEntries.length; i++) {
@@ -791,7 +1003,7 @@ class VideoEditorState {
 			if (gapEnd > gapStart) {
 				// Find cuts in this gap region
 				const cutsInGap = composedSegments.filter(
-					(seg) => seg.category !== "good" && seg.start >= gapStart && seg.end <= gapEnd
+					(seg) => seg.start >= gapStart && seg.end <= gapEnd
 				);
 				const cutDuration = cutsInGap.reduce((sum, seg) => sum + Math.max(seg.end - seg.start, 0), 0);
 
@@ -801,7 +1013,7 @@ class VideoEditorState {
 						: `${cutsInGap.length} cuts`;
 
 					blocks.push({
-						id: `cut-before-${group.beatId}`,
+						id: `cut-before-${group.slotId}`,
 						kind: "cut",
 						beatId: null,
 						label: cutLabel,
@@ -817,7 +1029,7 @@ class VideoEditorState {
 				const remainingGap = (gapEnd - gapStart) - cutDuration;
 				if (remainingGap > 200) {
 					blocks.push({
-						id: `gap-before-${group.beatId}`,
+						id: `gap-before-${group.slotId}`,
 						kind: "gap",
 						beatId: null,
 						label: "",
@@ -836,14 +1048,14 @@ class VideoEditorState {
 			const label = text.length > 20 ? text.slice(0, 19) + "…" : text;
 
 			blocks.push({
-				id: `beat-${group.beatId}`,
+				id: `beat-${group.slotId}`,
 				kind: "beat",
-				beatId: group.beatId,
+				beatId: group.slotId,
 				label,
-				humanLabel: humanizeBeatId(group.beatId),
+				humanLabel: humanizeSlotId(group.slotId),
 				durationMs: variant.durationMs,
 				widthPct: 0,
-				color: colorMap.get(group.beatId) ?? BEAT_COLORS[0],
+				color: colorMap.get(group.slotId) ?? BEAT_COLORS[0],
 				startMs: variant.start
 			});
 			totalMs += variant.durationMs;
@@ -857,10 +1069,14 @@ class VideoEditorState {
 		}));
 	}
 
-	selectedVariantForBeatId(beatId: string): EditorBeatVariant | undefined {
-		const group = this.beatGroups.find((g) => g.beatId === beatId);
+	selectedVariantForSlotId(slotId: string): EditorBeatVariant | undefined {
+		const group = this.slotGroups.find((g) => g.slotId === slotId);
 		if (!group) return undefined;
 		return this.selectedVariantForGroup(group);
+	}
+
+	selectedVariantForBeatId(beatId: string): EditorBeatVariant | undefined {
+		return this.selectedVariantForSlotId(beatId);
 	}
 
 	get clipStripSegments() {
@@ -973,9 +1189,13 @@ class VideoEditorState {
 	}
 
 	private selectedVariantForGroup(group: EditorBeatGroup): EditorBeatVariant | undefined {
-		const selectedId = this.selectedBeatVariantIds[group.beatId];
+		const selectedId = this.selectedSlotVariantIds[group.slotId];
 
-		return group.variants.find((variant) => variant.id === selectedId) ?? group.variants[0];
+		return (
+			group.variants.find(
+				(variant) => variant.variantId === selectedId || variant.id === selectedId
+			) ?? group.variants[0]
+		);
 	}
 
 	setVideoElement(element: HTMLVideoElement | null) {
@@ -1082,7 +1302,7 @@ class VideoEditorState {
 		this.previewMode = "after";
 		this.activeFilter = "all";
 		this.selectedCutIds = [];
-		this.selectedBeatVariantIds = {};
+		this.selectedSlotVariantIds = {};
 		this.transcribing = false;
 		this.pollingTranscript = false;
 		this.analyzing = false;
@@ -1092,6 +1312,7 @@ class VideoEditorState {
 		this.transcriptText = "";
 		this.transcriptWords = [];
 		this.wordLabels = [];
+		this.analysisLLMOutputJson = "";
 		this.transcriptError = "";
 		this.analysisError = "";
 		this.jobError = "";
@@ -1108,7 +1329,9 @@ class VideoEditorState {
 		if (signature === this.lastSelectionSignature) return;
 
 		this.lastSelectionSignature = signature;
-		this.selectedCutIds = this.cutSegments.map((segment) => segment.id);
+		this.selectedCutIds = this.cutSegments
+			.filter((segment) => !segment.locked)
+			.map((segment) => segment.id);
 	}
 
 	syncBeatSelections(signature: string) {
@@ -1117,17 +1340,22 @@ class VideoEditorState {
 		this.lastBeatSelectionSignature = signature;
 		const nextSelections: Record<string, string> = {};
 
-		for (const group of this.beatGroups) {
-			const existing = this.selectedBeatVariantIds[group.beatId];
-			nextSelections[group.beatId] = group.variants.some((variant) => variant.id === existing)
-				? existing
-				: group.variants[0]?.id ?? "";
+		for (const group of this.slotGroups) {
+			const existing = this.selectedSlotVariantIds[group.slotId];
+			const selectedVariant =
+				group.variants.find(
+					(variant) => variant.variantId === existing || variant.id === existing
+				) ?? group.variants[0];
+			nextSelections[group.slotId] = selectedVariant?.variantId ?? "";
 		}
 
-		this.selectedBeatVariantIds = nextSelections;
+		this.selectedSlotVariantIds = nextSelections;
 	}
 
 	toggleCutSelection(id: string) {
+		const segment = this.cutSegments.find((value) => value.id === id);
+		if (segment?.locked) return;
+
 		if (this.selectedCutIds.includes(id)) {
 			this.selectedCutIds = this.selectedCutIds.filter((value) => value !== id);
 			return;
@@ -1137,21 +1365,27 @@ class VideoEditorState {
 	}
 
 	selectAllCuts() {
-		this.selectedCutIds = this.cutSegments.map((segment) => segment.id);
+		this.selectedCutIds = this.cutSegments
+			.filter((segment) => !segment.locked)
+			.map((segment) => segment.id);
 	}
 
 	clearSelectedCuts() {
 		this.selectedCutIds = [];
 	}
 
-	selectBeatVariant(beatId: string, id: string) {
-		if (this.selectedBeatVariantIds[beatId] === id) return;
+	selectSlotVariant(slotId: string, variantId: string) {
+		if (this.selectedSlotVariantIds[slotId] === variantId) return;
 
 		this.stopPreview();
-		this.selectedBeatVariantIds = {
-			...this.selectedBeatVariantIds,
-			[beatId]: id
+		this.selectedSlotVariantIds = {
+			...this.selectedSlotVariantIds,
+			[slotId]: variantId
 		};
+	}
+
+	selectBeatVariant(beatId: string, variantId: string) {
+		this.selectSlotVariant(beatId, variantId);
 	}
 
 	async maybeStartProcessing() {
@@ -1262,6 +1496,11 @@ class VideoEditorState {
 	}
 
 	private clearPreviewListeners() {
+		if (this.previewRafId !== null) {
+			cancelAnimationFrame(this.previewRafId);
+			this.previewRafId = null;
+		}
+
 		if (this.videoElement && this.previewTimeUpdateHandler) {
 			this.videoElement.removeEventListener("timeupdate", this.previewTimeUpdateHandler);
 		}
@@ -1274,30 +1513,92 @@ class VideoEditorState {
 		this.previewEndedHandler = null;
 	}
 
+	private async seekPreviewTo(timeMs: number) {
+		const video = this.videoElement;
+		if (!video) return;
+
+		const targetSeconds = Math.max(timeMs, 0) / 1000;
+		if (Math.abs(video.currentTime - targetSeconds) <= PREVIEW_EPSILON_MS / 1000) {
+			return;
+		}
+
+		await new Promise<void>((resolve) => {
+			let done = false;
+			let timeoutId: ReturnType<typeof setTimeout> | null = null;
+
+			const cleanup = () => {
+				if (done) return;
+				done = true;
+				video.removeEventListener("seeked", handleSettled);
+				if (timeoutId) clearTimeout(timeoutId);
+				resolve();
+			};
+
+			const handleSettled = () => {
+				if (Math.abs(video.currentTime - targetSeconds) <= PREVIEW_EPSILON_MS / 1000) {
+					cleanup();
+				}
+			};
+
+			video.addEventListener("seeked", handleSettled);
+			timeoutId = setTimeout(cleanup, PREVIEW_SEEK_SETTLE_MS);
+
+			// Always use exact seek (currentTime) instead of fastSeek,
+			// which snaps to the nearest keyframe and causes audio stutter at cut boundaries
+			video.currentTime = targetSeconds;
+		});
+	}
+
 	private async playSegment(index: number, segments: AutocutAnalysisSegment[]) {
 		if (!this.videoElement) return;
 
 		if (index >= segments.length) {
+			console.log(`[preview] all ${segments.length} segments done`);
 			this.stopPreview();
 			return;
 		}
 
 		this.currentPreviewSegmentIndex = index;
 		const segment = segments[index];
-		this.videoElement.currentTime = segment.start / 1000;
 
-		const onTimeUpdate = () => {
+		console.log(`[preview] segment ${index}/${segments.length}: "${segment.text}" start=${segment.start}ms end=${segment.end}ms`);
+
+		// Pause before seeking to prevent audio from the old position bleeding through
+		this.videoElement.pause();
+		await this.seekPreviewTo(segment.start);
+		console.log(`[preview]   seeked to ${(this.videoElement.currentTime * 1000).toFixed(1)}ms (target ${segment.start}ms)`);
+
+		// Use requestAnimationFrame (~16ms) instead of timeupdate (~250ms) for tight cuts
+		let hasEnteredRange = false;
+		const pollEnd = () => {
 			if (!this.videoElement) return;
+			const nowMs = this.videoElement.currentTime * 1000;
 
-			if (this.videoElement.currentTime * 1000 >= segment.end) {
-				this.clearPreviewListeners();
-				this.videoElement.pause();
-				void this.playSegment(index + 1, segments);
+			// Track whether we've actually entered the segment's time range.
+			// This prevents a false "end" trigger when a backward seek hasn't
+			// fully settled and currentTime is still beyond segment.end.
+			if (!hasEnteredRange) {
+				if (nowMs >= segment.start - PREVIEW_EPSILON_MS && nowMs < segment.end + PREVIEW_EPSILON_MS) {
+					hasEnteredRange = true;
+				} else {
+					// Not in range yet — keep polling
+					this.previewRafId = requestAnimationFrame(pollEnd);
+					return;
+				}
 			}
+
+			if (nowMs >= segment.end) {
+				console.log(`[preview]   hit end at ${nowMs.toFixed(1)}ms (overshot ${(nowMs - segment.end).toFixed(1)}ms)`);
+				this.videoElement.pause();
+				this.clearPreviewListeners();
+				void this.playSegment(index + 1, segments);
+				return;
+			}
+
+			this.previewRafId = requestAnimationFrame(pollEnd);
 		};
 
-		this.previewTimeUpdateHandler = onTimeUpdate;
-		this.videoElement.addEventListener("timeupdate", onTimeUpdate);
+		this.previewRafId = requestAnimationFrame(pollEnd);
 		await this.videoElement.play().catch(() => undefined);
 	}
 
@@ -1315,6 +1616,7 @@ class VideoEditorState {
 		this.transcriptText = "";
 		this.transcriptWords = [];
 		this.wordLabels = [];
+		this.analysisLLMOutputJson = "";
 		this.selectedBeatVariantIds = {};
 		this.lastBeatSelectionSignature = "";
 
@@ -1327,7 +1629,7 @@ class VideoEditorState {
 				body: formData
 			});
 
-			const data = await res.json();
+			const data = (await res.json()) as { transcript_id?: string; status?: string; error?: string };
 
 			if (runId !== this.currentRun) return;
 
@@ -1355,23 +1657,24 @@ class VideoEditorState {
 
 		this.analyzing = true;
 		this.analysisError = "";
+		this.analysisLLMOutputJson = "";
 
 		try {
 			const res = await fetch("/api/video/analyze", {
 				method: "POST",
 				headers: { "Content-Type": "application/json" },
 				body: JSON.stringify({
-					words: this.transcriptWords,
-					options: {
-						deadSpaceThresholdMs: this.deadSpaceThreshold,
-						clipEndTrimMs: this.clipEndTrim
-					}
+					words: this.transcriptWords
 				})
 			});
 
-			const data = await res.json();
+			const data = (await res.json()) as AnalyzeTranscriptResponse & { error?: string };
 
 			if (runId !== this.currentRun) return;
+
+			this.analysisLLMOutputJson = data.llmOutput
+				? JSON.stringify(data.llmOutput, null, 2)
+				: "";
 
 			if (!res.ok || !Array.isArray(data.labels)) {
 				this.analysisError = data.error ?? "Transcript analysis failed.";
