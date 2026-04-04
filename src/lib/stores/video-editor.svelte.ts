@@ -20,6 +20,7 @@ import {
 	type AnalysisSegmentRef,
 	type EditorBeatGroup,
 	type EditorBeatVariant,
+	type SemanticModel,
 	buildSemanticModel
 } from "$lib/video/derived-beats";
 import { buildSpeechChunks } from "$lib/video/word-chunks";
@@ -268,6 +269,15 @@ class VideoEditorState {
 	private lastSyncSignature = "";
 	private lastSelectionSignature = "";
 	private lastBeatSelectionSignature = "";
+
+	// Caches for expensive derived data that only depend on transcript/labels/settings
+	private _cachedSemanticModelKey = "";
+	private _cachedSemanticModel: SemanticModel | null = null;
+	private _cachedAnalysisSegmentsKey = "";
+	private _cachedAnalysisSegments: AutocutAnalysisSegment[] | null = null;
+	private _cachedAnalysisSegmentRefs: AnalysisSegmentRef<AutocutAnalysisSegment>[] | null = null;
+	private _cachedSpeechChunksKey = "";
+	private _cachedSpeechChunks: SpeechChunk[] | null = null;
 	private previewTimeUpdateHandler: (() => void) | null = null;
 	private previewEndedHandler: (() => void) | null = null;
 	private previewRafId: number | null = null;
@@ -321,7 +331,7 @@ class VideoEditorState {
 		});
 	}
 
-	get semanticModel() {
+	get semanticModel(): SemanticModel {
 		if (this.transcriptWords.length === 0 || this.wordLabels.length === 0) {
 			return {
 				slotGroups: [] as EditorBeatGroup[],
@@ -332,7 +342,15 @@ class VideoEditorState {
 			};
 		}
 
-		return buildSemanticModel(this.transcriptWords, this.wordLabels, this.speechChunks);
+		const key = `${this.transcriptWords.length}:${this.wordLabels.length}:${this.deadSpaceThreshold}`;
+		if (key === this._cachedSemanticModelKey && this._cachedSemanticModel) {
+			return this._cachedSemanticModel;
+		}
+
+		const result = buildSemanticModel(this.transcriptWords, this.wordLabels, this.speechChunks);
+		this._cachedSemanticModelKey = key;
+		this._cachedSemanticModel = result;
+		return result;
 	}
 
 	get debugExportJson(): string {
@@ -518,14 +536,28 @@ class VideoEditorState {
 			return [];
 		}
 
-		return buildAnalysisSegments(this.transcriptWords, this.wordLabels, {
+		const key = `${this.transcriptWords.length}:${this.wordLabels.length}:${this.deadSpaceThreshold}:${this.clipEndTrim}`;
+		if (key === this._cachedAnalysisSegmentsKey && this._cachedAnalysisSegments) {
+			return this._cachedAnalysisSegments;
+		}
+
+		const result = buildAnalysisSegments(this.transcriptWords, this.wordLabels, {
 			deadSpaceThresholdMs: this.deadSpaceThreshold,
 			clipEndTrimMs: this.clipEndTrim
 		});
+		this._cachedAnalysisSegmentsKey = key;
+		this._cachedAnalysisSegments = result;
+		this._cachedAnalysisSegmentRefs = null; // invalidate dependent cache
+		return result;
 	}
 
 	get analysisSegmentRefs(): AnalysisSegmentRef<AutocutAnalysisSegment>[] {
-		return buildAnalysisSegmentRefs(this.analysisSegments);
+		if (this._cachedAnalysisSegmentRefs && this._cachedAnalysisSegmentsKey === `${this.transcriptWords.length}:${this.wordLabels.length}:${this.deadSpaceThreshold}:${this.clipEndTrim}`) {
+			return this._cachedAnalysisSegmentRefs;
+		}
+		const result = buildAnalysisSegmentRefs(this.analysisSegments);
+		this._cachedAnalysisSegmentRefs = result;
+		return result;
 	}
 
 	get speechChunks(): SpeechChunk[] {
@@ -533,7 +565,15 @@ class VideoEditorState {
 			return [];
 		}
 
-		return buildSpeechChunks(this.transcriptWords, this.wordLabels, this.deadSpaceThreshold);
+		const key = `${this.transcriptWords.length}:${this.wordLabels.length}:${this.deadSpaceThreshold}`;
+		if (key === this._cachedSpeechChunksKey && this._cachedSpeechChunks) {
+			return this._cachedSpeechChunks;
+		}
+
+		const result = buildSpeechChunks(this.transcriptWords, this.wordLabels, this.deadSpaceThreshold);
+		this._cachedSpeechChunksKey = key;
+		this._cachedSpeechChunks = result;
+		return result;
 	}
 
 	get slotGroups(): EditorBeatGroup[] {
