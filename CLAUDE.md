@@ -28,24 +28,26 @@ No test runner is configured — this is a hackathon prototype.
 ### Request Flow
 
 ```
-Upload → /api/video/transcribe → AssemblyAI (returns transcript_id)
-       → /api/video/analyze    → OpenRouter/Claude (word-by-word label tool call)
-       → /api/video/autocut    → Creates in-memory job (demo, not persisted)
-       → /api/video/autocut/[jobId] → Poll job status
+Upload → /api/video/transcribe           → AssemblyAI (returns transcript_id)
+       → /api/video/transcribe/[id]      → Poll transcription status
+       → /api/video/analyze              → OpenRouter/Claude (word-by-word label tool call)
+       → /api/video/autocut              → Creates in-memory job (demo, not persisted)
+       → /api/video/autocut/[jobId]      → Poll job status
 ```
 
 ### Key Files
-- [src/routes/+page.svelte](src/routes/+page.svelte) — Main editing UI; drives the `isProcessing` / `isProcessed` state machine with timed transitions
-- [src/routes/+layout.svelte](src/routes/+layout.svelte) — Root layout: navbar tabs + collapsible clip strip
+- [src/routes/videoeditor/+page.svelte](src/routes/videoeditor/+page.svelte) — Main editing UI at `/videoeditor`; drives the `isProcessing` / `isProcessed` state machine with timed transitions
+- [src/routes/videoeditor/+layout.svelte](src/routes/videoeditor/+layout.svelte) — Editor layout: navbar tabs + bottom clip strip; reads `isProcessed` store to toggle strip state
 - [src/routes/api/video/analyze/+server.ts](src/routes/api/video/analyze/+server.ts) — LLM word classification via tool use; validates that every word in transcript is labeled exactly once
 - [src/lib/server/autocut-jobs.ts](src/lib/server/autocut-jobs.ts) — In-memory job store (demo data only, resets on restart)
 - [src/lib/types/autocut.ts](src/lib/types/autocut.ts) — Canonical type definitions for `AutocutJob` and related types
 - [src/lib/video/analysis-segments.ts](src/lib/video/analysis-segments.ts) — Builds contiguous segment arrays from LLM-labeled word data
-- [src/lib/stores/snip.ts](src/lib/stores/snip.ts) — `isProcessed` writable store shared between layout and page
+- [src/lib/stores/snip.ts](src/lib/stores/snip.ts) — `isProcessed` writable store shared between layout and page (intentionally a legacy store for cross-component sharing)
 
 ### UI Layout
-- Fixed 368px sidebar with 4 panels: Files, SnipAI, Analysis, CutSettings
-- Main area: `VideoPreview` component
+- App served at `/videoeditor`
+- Fixed 368px sidebar with 4 panels: `FilesPanel`, `SnipAIPanel`, `AnalysisPanel`, `CutSettingsPanel` (all in `src/lib/components/sidebar/`)
+- Main area: `src/lib/components/main/VideoPreview.svelte`
 - Sidebar panels conditionally render based on `isProcessed` state
 
 ### LLM Integration Pattern
