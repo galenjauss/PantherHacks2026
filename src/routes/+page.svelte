@@ -1,6 +1,20 @@
 <script lang="ts">
 	import { Button } from '$lib/components/ui/button';
-	import { Card } from '$lib/components/ui/card';
+
+	let isActivating = $state(false);
+	let activationTimeout: ReturnType<typeof setTimeout> | null = null;
+
+	function handleAddVideosClick() {
+		if (activationTimeout) {
+			clearTimeout(activationTimeout);
+		}
+
+		isActivating = true;
+		activationTimeout = setTimeout(() => {
+			isActivating = false;
+			activationTimeout = null;
+		}, 850);
+	}
 </script>
 
 <svelte:head>
@@ -20,59 +34,61 @@
 
 	<header class="relative z-10 mx-auto flex w-full max-w-6xl items-center justify-between gap-4">
 		<div
-			class="inline-flex items-center gap-2 rounded-full border border-border/60 bg-card px-4 py-2 text-xs font-medium uppercase tracking-[0.22em] text-muted-foreground shadow-sm"
+			class="inline-flex items-center gap-2 rounded-full border border-border/50 bg-background/80 px-3.5 py-1.5 text-[0.72rem] font-medium uppercase tracking-[0.24em] text-muted-foreground"
 		>
 			<span class="h-2.5 w-2.5 rounded-full bg-primary"></span>
 			PantherHacks Editor
 		</div>
 
 		<div
-			class="inline-flex items-center rounded-full border border-border/60 bg-card px-4 py-2 text-xs font-medium uppercase tracking-[0.22em] text-muted-foreground shadow-sm"
+			class="inline-flex items-center rounded-full border border-border/50 bg-background/80 px-3.5 py-1.5 text-[0.72rem] font-medium uppercase tracking-[0.24em] text-muted-foreground"
 		>
 			Processing-ready
 		</div>
 	</header>
 
 	<main class="relative z-10 mx-auto flex w-full max-w-6xl flex-1 items-center justify-center py-6">
-		<Card
-			class="relative flex min-h-[26rem] w-full max-w-4xl overflow-hidden rounded-[2rem] border-border/60 bg-card p-0 shadow-xl"
-		>
-			<div class="absolute inset-0 bg-gradient-to-b from-background/40 via-card to-card"></div>
+		<div class="relative flex w-full max-w-3xl items-center justify-center px-6 py-8 text-center sm:px-10 lg:px-14">
+			<div class="max-w-xl">
+				<p class="mb-5 text-xs font-medium uppercase tracking-[0.28em] text-muted-foreground">
+					Transcript-aware cleanup
+				</p>
 
-			<div class="relative flex w-full items-center justify-center px-6 py-8 text-center sm:px-10 lg:px-14">
-				<div class="max-w-xl">
-					<p class="mb-5 text-xs font-medium uppercase tracking-[0.28em] text-muted-foreground">
-						Transcript-aware cleanup
-					</p>
+				<h1
+					class="text-5xl leading-none font-semibold tracking-tight text-foreground sm:text-6xl md:text-7xl"
+				>
+					TITLE
+					<br />
+					HEADER
+				</h1>
 
-					<h1
-						class="text-5xl leading-none font-semibold tracking-tight text-foreground sm:text-6xl md:text-7xl"
-					>
-						TITLE
-						<br />
-						HEADER
-					</h1>
-
-					<p class="mx-auto mt-6 max-w-md text-base leading-7 text-muted-foreground">
-						Find stutters, awkward phrasing, and bad takes from the transcript before you start
-						cutting.
-					</p>
-				</div>
+				<p class="mx-auto mt-6 max-w-md text-base leading-7 text-muted-foreground">
+					Find stutters, awkward phrasing, and bad takes from the transcript before you start
+					cutting.
+				</p>
 			</div>
-
-			<div class="pointer-events-none absolute inset-x-0 top-0 h-px bg-border/60"></div>
-		</Card>
+		</div>
 	</main>
 
 	<div class="relative z-10 mx-auto w-full max-w-6xl pb-1">
 		<Button
 			size="lg"
-			class="h-14 w-full rounded-[1.35rem] border-border/60 bg-primary text-primary-foreground shadow-lg hover:bg-primary/90"
+			onclick={handleAddVideosClick}
+			class={`group relative h-16 w-full overflow-hidden rounded-[1.45rem] border border-primary/20 text-base font-semibold text-primary-foreground shadow-lg transition-all duration-300 ${
+				isActivating
+					? 'scale-[0.995] cursor-progress bg-primary/95 shadow-[0_18px_50px_color-mix(in_oklab,var(--color-primary)_35%,transparent)]'
+					: 'cursor-pointer bg-primary shadow-[0_12px_38px_color-mix(in_oklab,var(--color-primary)_28%,transparent)] hover:-translate-y-0.5 hover:bg-primary/92 hover:shadow-[0_18px_50px_color-mix(in_oklab,var(--color-primary)_35%,transparent)]'
+			}`}
 		>
-			<span class="grid h-7 w-7 place-items-center rounded-full bg-primary-foreground/15 text-lg leading-none">
-				+
+			<span class="pointer-events-none absolute inset-0 bg-gradient-to-r from-primary via-accent to-primary opacity-100"></span>
+			<span class="pointer-events-none absolute inset-0 opacity-0 transition-opacity duration-300 group-hover:opacity-100 bg-[radial-gradient(circle_at_center,rgba(255,255,255,0.18),transparent_55%)]"></span>
+			<span class="pointer-events-none absolute inset-x-6 top-0 h-px bg-white/45"></span>
+			<span class="relative z-[1] flex items-center justify-center gap-3">
+				<span class="grid h-7 w-7 place-items-center rounded-full bg-primary-foreground/15 text-lg leading-none transition-transform duration-300 group-hover:scale-110">
+					+
+				</span>
+				<span>{isActivating ? 'Preparing upload...' : 'Add Videos'}</span>
 			</span>
-			Add Videos
 		</Button>
 	</div>
 </div>
