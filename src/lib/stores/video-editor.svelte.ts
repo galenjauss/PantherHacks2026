@@ -112,6 +112,7 @@ const CLIP_STRIP_LABEL_LIMIT = 12;
 const TIMELINE_BAR_COUNT = 96;
 const TIMELINE_LABEL_COUNT = 8;
 const PREVIEW_EPSILON_MS = 4;
+const PREVIEW_SEEK_SETTLE_MS = 120;
 
 function clamp(value: number, min: number, max: number): number {
 	return Math.min(max, Math.max(min, value));
@@ -240,6 +241,7 @@ class VideoEditorState {
 	private lastBeatSelectionSignature = "";
 	private previewTimeUpdateHandler: (() => void) | null = null;
 	private previewEndedHandler: (() => void) | null = null;
+	private previewRafId: number | null = null;
 	private videoElement: HTMLVideoElement | null = null;
 
 	get totalDurationMs(): number {
@@ -1465,6 +1467,11 @@ class VideoEditorState {
 	}
 
 	private clearPreviewListeners() {
+		if (this.previewRafId !== null) {
+			cancelAnimationFrame(this.previewRafId);
+			this.previewRafId = null;
+		}
+
 		if (this.videoElement && this.previewTimeUpdateHandler) {
 			this.videoElement.removeEventListener("timeupdate", this.previewTimeUpdateHandler);
 		}
@@ -1477,30 +1484,78 @@ class VideoEditorState {
 		this.previewEndedHandler = null;
 	}
 
+	private async seekPreviewTo(timeMs: number) {
+		const video = this.videoElement;
+		if (!video) return;
+
+		const targetSeconds = Math.max(timeMs, 0) / 1000;
+		if (Math.abs(video.currentTime - targetSeconds) <= PREVIEW_EPSILON_MS / 1000) {
+			return;
+		}
+
+		await new Promise<void>((resolve) => {
+			let done = false;
+			let timeoutId: ReturnType<typeof setTimeout> | null = null;
+
+			const cleanup = () => {
+				if (done) return;
+				done = true;
+				video.removeEventListener("seeked", handleSettled);
+				if (timeoutId) clearTimeout(timeoutId);
+				resolve();
+			};
+
+			const handleSettled = () => {
+				if (Math.abs(video.currentTime - targetSeconds) <= PREVIEW_EPSILON_MS / 1000) {
+					cleanup();
+				}
+			};
+
+			video.addEventListener("seeked", handleSettled);
+			timeoutId = setTimeout(cleanup, PREVIEW_SEEK_SETTLE_MS);
+
+			// Always use exact seek (currentTime) instead of fastSeek,
+			// which snaps to the nearest keyframe and causes audio stutter at cut boundaries
+			video.currentTime = targetSeconds;
+		});
+	}
+
 	private async playSegment(index: number, segments: AutocutAnalysisSegment[]) {
 		if (!this.videoElement) return;
 
 		if (index >= segments.length) {
+			console.log(`[preview] all ${segments.length} segments done`);
 			this.stopPreview();
 			return;
 		}
 
 		this.currentPreviewSegmentIndex = index;
 		const segment = segments[index];
-		this.videoElement.currentTime = segment.start / 1000;
 
-		const onTimeUpdate = () => {
+		console.log(`[preview] segment ${index}/${segments.length}: "${segment.text}" start=${segment.start}ms end=${segment.end}ms`);
+
+		// Pause before seeking to prevent audio from the old position bleeding through
+		this.videoElement.pause();
+		await this.seekPreviewTo(segment.start);
+		console.log(`[preview]   seeked to ${(this.videoElement.currentTime * 1000).toFixed(1)}ms (target ${segment.start}ms)`);
+
+		// Use requestAnimationFrame (~16ms) instead of timeupdate (~250ms) for tight cuts
+		const pollEnd = () => {
 			if (!this.videoElement) return;
+			const nowMs = this.videoElement.currentTime * 1000;
 
-			if (this.videoElement.currentTime * 1000 >= segment.end) {
-				this.clearPreviewListeners();
+			if (nowMs >= segment.end) {
+				console.log(`[preview]   hit end at ${nowMs.toFixed(1)}ms (overshot ${(nowMs - segment.end).toFixed(1)}ms)`);
 				this.videoElement.pause();
+				this.clearPreviewListeners();
 				void this.playSegment(index + 1, segments);
+				return;
 			}
+
+			this.previewRafId = requestAnimationFrame(pollEnd);
 		};
 
-		this.previewTimeUpdateHandler = onTimeUpdate;
-		this.videoElement.addEventListener("timeupdate", onTimeUpdate);
+		this.previewRafId = requestAnimationFrame(pollEnd);
 		await this.videoElement.play().catch(() => undefined);
 	}
 

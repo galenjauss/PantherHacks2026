@@ -12,7 +12,7 @@
 	import VideoPreview from "$lib/components/main/VideoPreview.svelte";
 	import { videoEditorState as editor } from "$lib/stores/video-editor.svelte";
 
-	let sidebarTab = $state<"script" | "cuts" | "settings">("script");
+	let sidebarTab = $state<"transcript" | "script" | "cuts" | "settings">("transcript");
 
 	function handleSeekSlot(_slotId: string, startMs: number) {
 		editor.seekTo(startMs);
@@ -105,6 +105,7 @@
 								<div class="flex-shrink-0 border-b border-snip-border px-3 pt-2.5 pb-2">
 									<div class="flex rounded-lg bg-snip-bg p-0.5">
 										{#each [
+											{ id: "transcript" as const, label: "Transcript" },
 											{ id: "script" as const, label: "Script" },
 											{ id: "cuts" as const, label: "Cuts" },
 											{ id: "settings" as const, label: "Settings" },
@@ -127,7 +128,22 @@
 
 								<!-- Tab content -->
 								<div class="flex min-h-0 flex-1 flex-col overflow-y-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-									{#if sidebarTab === "script"}
+									{#if sidebarTab === "transcript"}
+										<div class="flex flex-col gap-3 px-4 py-4">
+											{#if editor.transcriptText}
+												<p class="whitespace-pre-wrap text-[12px] leading-[1.7] text-snip-text-primary">
+													{editor.transcriptText}
+												</p>
+											{:else}
+												<p class="text-[12px] text-snip-text-muted">
+													{editor.selectedFile
+														? "Transcript will appear here once processing completes."
+														: "Upload a video to generate a transcript."}
+												</p>
+											{/if}
+										</div>
+
+									{:else if sidebarTab === "script"}
 										<ScriptPanel onSeekSlot={handleSeekSlot} />
 
 									{:else if sidebarTab === "cuts"}
