@@ -30,13 +30,22 @@ Rules:
 - A retake requires the speaker to be restarting the same thought in the same take, not just reusing a common word in a different context or in a later full take.
 - If the speaker records the SAME line multiple times as separate full takes, only the default currently selected one should be `good`; the others should be `retake`. They should still share the same `beatId` and have different `takeId` values.
 - A NEW `takeId` starts whenever the speaker jumps back to an earlier beat or restarts the script from the top for another pass.
-- If the speaker says a partial phrase, pauses, then corrects it inside one take (e.g., "presenting our hackathon... uh... our hackathon project"), the incomplete version is a `retake` and the corrected version is `good`. Both should keep the same `takeId` and `beatId`.
 - All words from the same overall pass through the script should share the same `takeId`.
 - Do NOT reuse the same `takeId` across separate full passes through the script.
 - All words that correspond to the same intended clip/line across different takes should share the same `beatId`.
 - Use short IDs like `take_1`, `take_2`, etc. for takes, and `beat_1`, `beat_2`, etc. for beats.
 - If a filler word occurs inside a take and beat, keep `category` as `filler_words` and still assign that word the same `takeId` and `beatId`.
 - If a word is not part of the repeated script structure, you may set `takeId` and `beatId` to `null`.
+
+Mid-take retakes (CRITICAL — these are easy to miss):
+- If the speaker says a partial phrase, pauses, then restarts or corrects it within the SAME take, the incomplete/abandoned version is a `retake` and the corrected version is `good`. Both keep the same `takeId` and `beatId`.
+- Repeated words or phrases are almost always a false start. Examples:
+  - "as a, ... as a demo" → "as a," is retake, "as a demo" is good (same beat, same take)
+  - "today, ... today I want to" → first "today" is retake, second is good (same beat, same take)
+  - "I will be pre... I will be presenting" → "I will be pre..." is retake, full version is good
+  - "we built a, we built a tool" → first "we built a," is retake
+- When you see the same opening words appear twice in close proximity within one take, the first occurrence is nearly always an abandoned false start (retake). Do NOT label both as `good` — that creates duplicate content in the edit.
+- A natural pause between parts of the same sentence is NOT a retake boundary. "I will be practicing [pause] my presentation" is one continuous good segment if the speaker didn't restart.
 
 Indexed words:
 {{timestampedTranscript}}

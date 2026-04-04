@@ -28,10 +28,10 @@ import ScriptPanel from "$lib/components/sidebar/ScriptPanel.svelte";
 		{ color: "#6b7280", label: "pause" },
 		{ color: "#3b82f6", label: "retake" }
 	] as const;
-	const takeLegend = [
-		{ color: "#f5f5f5", label: "selected take" },
-		{ color: "rgba(245,245,245,0.28)", label: "final option" },
-		{ color: "rgba(59,130,246,0.5)", label: "retake option" }
+	const beatStripLegend = [
+		{ color: "#7c3aed", label: "kept beat" },
+		{ color: "#ef4444", label: "cut" },
+		{ color: "#1a1a1a", border: "#2a2a2a", label: "gap" }
 	] as const;
 	const skeletonWidths = [7, 5, 9, 6, 8, 10, 4, 12, 6, 11, 8];
 
@@ -236,9 +236,12 @@ import ScriptPanel from "$lib/components/sidebar/ScriptPanel.svelte";
 						</span>
 						<div class="hidden items-center gap-2.5 md:flex">
 							{#if editor.clipStripBeatBlocks.length > 0}
-								{#each takeLegend as item (item.label)}
+								{#each beatStripLegend as item (item.label)}
 									<div class="flex items-center gap-1.5">
-										<div class="size-2 rounded-[3px]" style={`background:${item.color}`}></div>
+										<div
+											class="size-2 rounded-[3px]"
+											style={`background:${item.color};${"border" in item ? `border:1px solid ${item.border}` : ""}`}
+										></div>
 										<span class="text-[10px] text-snip-text-secondary">{item.label}</span>
 									</div>
 								{/each}
@@ -268,58 +271,88 @@ import ScriptPanel from "$lib/components/sidebar/ScriptPanel.svelte";
 
 				<div class="relative min-h-0 flex-1 overflow-hidden px-4 pb-3 pt-4">
 					{#if editor.clipStripBeatBlocks.length > 0}
-						<div class="flex h-full min-w-full items-start gap-2 overflow-x-auto pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-							{#each editor.clipStripBeatBlocks as block (block.id)}
-								<div
-									class="flex h-full min-w-[112px] flex-col gap-2 rounded-xl border border-snip-border bg-snip-bg/55 p-2"
-									style={`width:${block.widthPct}%;`}
-								>
-									<div class="flex items-center justify-between gap-2">
-										<span class="truncate font-mono text-[9px] uppercase tracking-[0.16em] text-snip-text-muted">
-											{block.beatId.replace(/^beat_/, "Beat ")}
-										</span>
-										<span class="truncate text-[10px] text-snip-text-secondary">
-											{block.activeLabel}
-										</span>
-									</div>
+						{@const timelineBlocks = editor.editedTimelineBlocks}
+						<!-- Timeline strip: beats + cuts shown inline -->
+						<div class="flex h-full flex-col gap-1.5">
+							<!-- Top row: continuous timeline bar -->
+							<div class="flex h-8 items-stretch gap-px overflow-hidden rounded">
+								{#each timelineBlocks as block (block.id)}
+									{#if block.kind === "beat"}
+										<button
+											type="button"
+											class="group relative flex items-center overflow-hidden transition-opacity hover:opacity-90"
+											style="width:{block.widthPct}%;background:{block.color}33;border-bottom:2px solid {block.color};"
+											onclick={() => editor.seekTo(block.startMs)}
+											title="{block.humanLabel}: {block.label}"
+										>
+											{#if block.widthPct > 6}
+												<span
+													class="truncate px-2 text-[10px] font-medium"
+													style="color:{block.color};"
+												>
+													{block.label}
+												</span>
+											{/if}
+										</button>
+									{:else if block.kind === "cut"}
+										<div
+											class="relative flex items-center justify-center"
+											style="width:{block.widthPct}%;background:repeating-linear-gradient(
+												-45deg,
+												#ef444412,
+												#ef444412 2px,
+												transparent 2px,
+												transparent 5px
+											);border-bottom:2px solid #ef444466;"
+											title="Removed: {block.label} ({editor.formatSegmentDuration(block.durationMs)})"
+										>
+											{#if block.widthPct > 5}
+												<span class="truncate px-1 text-[8px] font-medium text-[#ef4444]/70">
+													{block.label}
+												</span>
+											{/if}
+										</div>
+									{:else}
+										<div
+											style="width:{block.widthPct}%;background:#1a1a1a;border-bottom:2px solid #2a2a2a;"
+										></div>
+									{/if}
+								{/each}
+							</div>
 
-									<div class="flex min-h-0 flex-1 flex-col gap-1.5">
+							<!-- Bottom row: beat variant selectors -->
+							<div class="flex min-h-0 flex-1 items-start gap-1 overflow-x-auto pb-0.5 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+								{#each editor.clipStripBeatBlocks as block (block.id)}
+									<div
+										class="flex min-w-[100px] flex-col gap-1"
+										style="width:{block.widthPct}%;"
+									>
+										<span class="truncate px-1 font-mono text-[9px] uppercase tracking-[0.12em] text-snip-text-muted">
+											{block.beatId.replace(/^beat_/, "B")}
+										</span>
 										{#each block.variants as variant (variant.id)}
 											<button
 												type="button"
-												class={`relative min-h-[28px] overflow-hidden rounded-lg border bg-snip-surface text-left transition-colors hover:border-primary/60 ${
-													variant.isSelected
-														? "border-primary shadow-[0_0_0_1px_rgba(124,58,237,0.25)]"
-														: "border-snip-border"
-												}`}
+												class="relative flex items-center justify-between gap-1 overflow-hidden border px-2 py-1 text-left transition-colors hover:border-primary/60 {variant.isSelected
+													? 'border-primary bg-primary/10'
+													: 'border-snip-border bg-snip-surface'}"
+												style="border-radius:4px;"
 												onclick={() => {
 													editor.selectBeatVariant(block.beatId, variant.id);
 													editor.seekTo(variant.start);
 												}}
 											>
-												<div
-													class="absolute inset-y-0 left-0 rounded-lg"
-													style={`width:${variant.fillPct}%;background:${
-														variant.isSelected
-															? "rgba(124,58,237,0.28)"
-															: variant.kind === "retake"
-																? "rgba(59,130,246,0.24)"
-																: "rgba(245,245,245,0.12)"
-													};`}
-												></div>
-												<div class="relative flex items-center justify-between gap-2 px-2 py-1.5">
-													<span class={`truncate text-[10px] font-medium ${variant.isSelected ? "text-white" : "text-snip-text-secondary"}`}>
-														{variant.label}
-													</span>
-													<span class="font-mono text-[9px] text-snip-text-muted">
-														{editor.formatSegmentDuration(variant.durationMs)}
-													</span>
-												</div>
+												<span class="truncate text-[10px] {variant.isSelected ? 'font-medium text-white' : 'text-snip-text-secondary'}">
+													{variant.label}
+												</span>
+												<span class="flex-shrink-0 font-mono text-[9px] text-snip-text-muted">
+													{editor.formatSegmentDuration(variant.durationMs)}
+												</span>
 											</button>
 										{/each}
 									</div>
-								</div>
-							{/each}
+								{/each}
+							</div>
 						</div>
 					{:else if editor.clipStripSegments.length > 0}
 						<div class="flex h-full items-center gap-[2px] overflow-hidden">
