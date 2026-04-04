@@ -1,119 +1,78 @@
 <script lang="ts">
-	import { goto } from "$app/navigation";
-	import { Button } from "$lib/components/ui/button";
-	import {
-		Card,
-		CardContent,
-		CardDescription,
-		CardHeader,
-		CardTitle
-	} from "$lib/components/ui/card";
-	import { Badge } from "$lib/components/ui/badge";
-	import { Input } from "$lib/components/ui/input";
-	import { videoEditorState as editor } from "$lib/stores/video-editor.svelte";
-	import FileVideoIcon from "@lucide/svelte/icons/file-video";
-	import SparklesIcon from "@lucide/svelte/icons/sparkles";
-	import UploadIcon from "@lucide/svelte/icons/upload";
-
-	let inputRef = $state<HTMLInputElement | null>(null);
-
-	async function handleFiles(files: FileList | null) {
-		const file = files?.[0] ?? null;
-		if (!file) return;
-
-		await editor.setFile(file);
-		await goto("/video-editor");
-	}
+	import { Button } from '$lib/components/ui/button';
+	import { Card } from '$lib/components/ui/card';
 </script>
 
 <svelte:head>
-	<title>PantherHacks Video Editor</title>
+	<title>PantherHacks Editor</title>
+	<meta
+		name="description"
+		content="A title screen for transcript-aware video cleanup with room for a wide add-video action."
+	/>
 </svelte:head>
 
-<div class="min-h-screen bg-[radial-gradient(circle_at_top,_rgba(124,58,237,0.18),_transparent_36%),linear-gradient(180deg,_#fff_0%,_#f7f4ff_45%,_#f5f6fb_100%)]">
-	<div class="mx-auto flex min-h-screen max-w-6xl flex-col justify-center gap-10 px-6 py-16">
-		<div class="grid items-center gap-8 lg:grid-cols-[1.1fr_0.9fr]">
-			<div class="space-y-6">
-				<Badge variant="outline" class="rounded-full border-primary/20 bg-white/70 px-4 py-1 text-primary">
-					PantherHacks 2026
-				</Badge>
+<div
+	class="relative flex min-h-svh flex-col overflow-hidden bg-background px-4 py-4 text-foreground sm:px-5"
+>
+	<div class="pointer-events-none absolute inset-0 bg-gradient-to-b from-background via-secondary/20 to-background"></div>
+	<div class="pointer-events-none absolute inset-0 bg-[linear-gradient(rgba(148,163,184,0.06)_1px,transparent_1px),linear-gradient(90deg,rgba(148,163,184,0.06)_1px,transparent_1px)] bg-[size:42px_42px] opacity-25"></div>
+	<div class="pointer-events-none absolute left-1/2 top-24 h-72 w-72 -translate-x-1/2 rounded-full bg-primary/12 blur-3xl"></div>
 
-				<div class="space-y-4">
-					<h1 class="max-w-3xl text-5xl font-semibold tracking-tight text-slate-950 sm:text-6xl">
-						Upload a video and continue in the live editor.
+	<header class="relative z-10 mx-auto flex w-full max-w-6xl items-center justify-between gap-4">
+		<div
+			class="inline-flex items-center gap-2 rounded-full border border-border/60 bg-card px-4 py-2 text-xs font-medium uppercase tracking-[0.22em] text-muted-foreground shadow-sm"
+		>
+			<span class="h-2.5 w-2.5 rounded-full bg-primary"></span>
+			PantherHacks Editor
+		</div>
+
+		<div
+			class="inline-flex items-center rounded-full border border-border/60 bg-card px-4 py-2 text-xs font-medium uppercase tracking-[0.22em] text-muted-foreground shadow-sm"
+		>
+			Processing-ready
+		</div>
+	</header>
+
+	<main class="relative z-10 mx-auto flex w-full max-w-6xl flex-1 items-center justify-center py-6">
+		<Card
+			class="relative flex min-h-[26rem] w-full max-w-4xl overflow-hidden rounded-[2rem] border-border/60 bg-card p-0 shadow-xl"
+		>
+			<div class="absolute inset-0 bg-gradient-to-b from-background/40 via-card to-card"></div>
+
+			<div class="relative flex w-full items-center justify-center px-6 py-8 text-center sm:px-10 lg:px-14">
+				<div class="max-w-xl">
+					<p class="mb-5 text-xs font-medium uppercase tracking-[0.28em] text-muted-foreground">
+						Transcript-aware cleanup
+					</p>
+
+					<h1
+						class="text-5xl leading-none font-semibold tracking-tight text-foreground sm:text-6xl md:text-7xl"
+					>
+						TITLE
+						<br />
+						HEADER
 					</h1>
-					<p class="max-w-2xl text-lg leading-8 text-slate-600">
-						The editor now runs the real transcription, analysis, and autocut job flow. Upload from
-						here and you’ll land directly in <code class="font-medium text-slate-950">/video-editor</code>.
+
+					<p class="mx-auto mt-6 max-w-md text-base leading-7 text-muted-foreground">
+						Find stutters, awkward phrasing, and bad takes from the transcript before you start
+						cutting.
 					</p>
 				</div>
-
-				<div class="flex flex-wrap gap-3 text-sm text-slate-600">
-					<div class="rounded-full border border-slate-200 bg-white/80 px-4 py-2">AssemblyAI transcript</div>
-					<div class="rounded-full border border-slate-200 bg-white/80 px-4 py-2">Real filler + pause labels</div>
-					<div class="rounded-full border border-slate-200 bg-white/80 px-4 py-2">shadcn loading states</div>
-				</div>
-
-				{#if editor.selectedFile}
-					<div class="flex flex-wrap items-center gap-3 rounded-2xl border border-slate-200 bg-white/80 p-4 shadow-sm">
-						<div class="flex items-center gap-3">
-							<div class="rounded-xl bg-primary/10 p-3 text-primary">
-								<FileVideoIcon class="size-5" />
-							</div>
-							<div>
-								<p class="font-medium text-slate-950">{editor.selectedFile.name}</p>
-								<p class="text-sm text-slate-500">
-									{(editor.selectedFile.size / 1024 / 1024).toFixed(2)} MB loaded
-								</p>
-							</div>
-						</div>
-						<Button class="ml-auto" onclick={() => goto("/video-editor")}>
-							Resume in editor
-						</Button>
-					</div>
-				{/if}
 			</div>
 
-			<Card class="border-slate-200/80 bg-white/85 shadow-xl shadow-primary/5 backdrop-blur">
-				<CardHeader class="space-y-3">
-					<div class="flex size-12 items-center justify-center rounded-2xl bg-primary/10 text-primary">
-						<SparklesIcon class="size-5" />
-					</div>
-					<CardTitle class="text-2xl">Start with a source video</CardTitle>
-					<CardDescription class="text-base leading-7">
-						Choose a local `.mp4`, `.mov`, or another video file. The editor will automatically kick
-						off the real processing pipeline.
-					</CardDescription>
-				</CardHeader>
-				<CardContent class="space-y-4">
-					<Input
-						bind:ref={inputRef}
-						type="file"
-						accept="video/*"
-						class="hidden"
-						onchange={(event) => handleFiles((event.currentTarget as HTMLInputElement).files)}
-					/>
+			<div class="pointer-events-none absolute inset-x-0 top-0 h-px bg-border/60"></div>
+		</Card>
+	</main>
 
-					<button
-						type="button"
-						class="flex w-full flex-col items-center justify-center gap-4 rounded-3xl border border-dashed border-slate-300 bg-slate-50/80 px-6 py-12 text-center transition hover:border-primary/40 hover:bg-primary/5"
-						onclick={() => inputRef?.click()}
-					>
-						<div class="flex size-16 items-center justify-center rounded-2xl bg-primary/10 text-primary">
-							<UploadIcon class="size-6" />
-						</div>
-						<div class="space-y-1">
-							<p class="text-lg font-medium text-slate-950">Choose a video</p>
-							<p class="text-sm text-slate-500">We’ll route you straight into the editor.</p>
-						</div>
-					</button>
-
-					<p class="text-sm leading-6 text-slate-500">
-						After upload, the editor shows real transcript polling, real cut detection, and shadcn
-						skeletons while the pipeline is still running.
-					</p>
-				</CardContent>
-			</Card>
-		</div>
+	<div class="relative z-10 mx-auto w-full max-w-6xl pb-1">
+		<Button
+			size="lg"
+			class="h-14 w-full rounded-[1.35rem] border-border/60 bg-primary text-primary-foreground shadow-lg hover:bg-primary/90"
+		>
+			<span class="grid h-7 w-7 place-items-center rounded-full bg-primary-foreground/15 text-lg leading-none">
+				+
+			</span>
+			Add Videos
+		</Button>
 	</div>
 </div>
