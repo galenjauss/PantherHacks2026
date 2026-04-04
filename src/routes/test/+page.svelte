@@ -3,11 +3,15 @@
 
 	let fileInput = $state<HTMLInputElement>();
 	let selectedFile = $state<File | null>(null);
+	let videoUrl = $state<string | null>(null);
+	let videoEl = $state<HTMLVideoElement>();
 	let uploading = $state(false);
 	let response = $state("");
 	let error = $state("");
 	let jobId = $state("");
 	let pollResult = $state("");
+	let isPreviewPlaying = $state(false);
+	let currentSegmentIndex = $state(0);
 
 	// Transcription state
 	interface TranscriptWord {
@@ -37,6 +41,36 @@
 	let segments = $state<Segment[]>([]);
 	let analysisError = $state("");
 
+	// Filter state
+	let showGood = $state(true);
+	let showFiller = $state(true);
+	let showRetake = $state(true);
+	let showDeadSpace = $state(true);
+
+	const categoryColors: Record<string, string> = {
+		good: "bg-green-900/40 text-green-300",
+		filler_words: "bg-yellow-900/40 text-yellow-300",
+		retake: "bg-red-900/40 text-red-300",
+		dead_space: "bg-neutral-700/40 text-neutral-400"
+	};
+
+	const categoryLabels: Record<string, string> = {
+		good: "Good",
+		filler_words: "Filler Words",
+		retake: "Retake",
+		dead_space: "Dead Space"
+	};
+
+	function filteredSegments(): Segment[] {
+		return segments.filter((s) => {
+			if (s.category === "good") return showGood;
+			if (s.category === "filler_words") return showFiller;
+			if (s.category === "retake") return showRetake;
+			if (s.category === "dead_space") return showDeadSpace;
+			return true;
+		});
+	}
+
 	function formatMs(ms: number): string {
 		const totalSeconds = Math.floor(ms / 1000);
 		const minutes = Math.floor(totalSeconds / 60);
@@ -48,6 +82,9 @@
 	function handleFileChange(e: Event) {
 		const input = e.target as HTMLInputElement;
 		selectedFile = input.files?.[0] ?? null;
+		// Create object URL for video preview
+		if (videoUrl) URL.revokeObjectURL(videoUrl);
+		videoUrl = selectedFile ? URL.createObjectURL(selectedFile) : null;
 		response = "";
 		error = "";
 		jobId = "";
@@ -59,6 +96,53 @@
 		transcriptError = "";
 		segments = [];
 		analysisError = "";
+		isPreviewPlaying = false;
+		currentSegmentIndex = 0;
+	}
+
+	function getGoodSegments(): Segment[] {
+		return segments.filter((s) => s.category === "good");
+	}
+
+	function playPreview() {
+		const good = getGoodSegments();
+		if (!videoEl || good.length === 0) return;
+
+		isPreviewPlaying = true;
+		currentSegmentIndex = 0;
+		playSegment(0, good);
+	}
+
+	function playSegment(index: number, good: Segment[]) {
+		if (!videoEl || index >= good.length) {
+			isPreviewPlaying = false;
+			currentSegmentIndex = 0;
+			return;
+		}
+
+		currentSegmentIndex = index;
+		const seg = good[index];
+		videoEl.currentTime = seg.start / 1000;
+		videoEl.play();
+
+		const onTimeUpdate = () => {
+			if (!videoEl) return;
+			if (videoEl.currentTime >= seg.end / 1000) {
+				videoEl.removeEventListener("timeupdate", onTimeUpdate);
+				videoEl.pause();
+				// Move to the next good segment
+				playSegment(index + 1, good);
+			}
+		};
+
+		videoEl.addEventListener("timeupdate", onTimeUpdate);
+	}
+
+	function stopPreview() {
+		if (!videoEl) return;
+		videoEl.pause();
+		isPreviewPlaying = false;
+		currentSegmentIndex = 0;
 	}
 
 	async function upload() {
@@ -142,6 +226,32 @@
 		}
 	}
 
+	async function analyzeTranscript() {
+		analyzing = true;
+		analysisError = "";
+		segments = [];
+
+		try {
+			const res = await fetch("/api/video/analyze", {
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({ words: transcriptWords })
+			});
+
+			const data = await res.json();
+
+			if (res.ok && data.segments) {
+				segments = data.segments;
+			} else {
+				analysisError = data.error ?? "Analysis failed";
+			}
+		} catch (err) {
+			analysisError = err instanceof Error ? err.message : "Analysis request failed";
+		} finally {
+			analyzing = false;
+		}
+	}
+
 	async function pollTranscript() {
 		if (!transcriptId) return;
 
@@ -157,6 +267,10 @@
 				transcriptText = data.text ?? "";
 				transcriptWords = data.words ?? [];
 				pollingTranscript = false;
+				// Auto-trigger LLM analysis
+				if (transcriptWords.length > 0) {
+					analyzeTranscript();
+				}
 			} else if (data.status === "error") {
 				transcriptError = data.error ?? "Transcription failed";
 				pollingTranscript = false;
@@ -190,6 +304,36 @@
 		<p class="mb-4 text-sm text-neutral-400">
 			{selectedFile.name} ({(selectedFile.size / 1024 / 1024).toFixed(2)} MB)
 		</p>
+	{/if}
+
+	{#if videoUrl}
+		<div class="mb-6">
+			<video
+				bind:this={videoEl}
+				src={videoUrl}
+				class="w-full rounded"
+				preload="auto"
+			>
+				<track kind="captions" />
+			</video>
+
+			{#if segments.length > 0}
+				<div class="mt-3 flex items-center gap-3">
+					{#if isPreviewPlaying}
+						<Button onclick={stopPreview} variant="destructive" size="sm">
+							Stop Preview
+						</Button>
+						<span class="text-sm text-neutral-400">
+							Playing segment {currentSegmentIndex + 1} / {getGoodSegments().length}
+						</span>
+					{:else}
+						<Button onclick={playPreview} size="sm" disabled={getGoodSegments().length === 0}>
+							Play "Good" Segments ({getGoodSegments().length})
+						</Button>
+					{/if}
+				</div>
+			{/if}
+		</div>
 	{/if}
 
 	<div class="flex gap-3">
@@ -276,6 +420,77 @@
 					</table>
 				</div>
 			{/if}
+
+			{#if transcriptWords.length > 0}
+				<details class="mt-4">
+					<summary class="cursor-pointer text-sm font-semibold text-neutral-400 hover:text-neutral-200">
+						Raw Transcript JSON (sent to LLM)
+					</summary>
+					<pre class="mt-2 max-h-96 overflow-auto rounded bg-neutral-900 p-4 text-xs text-neutral-100">{JSON.stringify(transcriptWords, null, 2)}</pre>
+				</details>
+			{/if}
+		</div>
+	{/if}
+
+	<!-- Analysis Section -->
+	{#if analyzing}
+		<div class="mt-6">
+			<h2 class="mb-2 text-lg font-semibold">Analysis</h2>
+			<p class="animate-pulse text-sm text-yellow-400">Analyzing transcript with LLM...</p>
+		</div>
+	{/if}
+
+	{#if analysisError}
+		<div class="mt-4 rounded bg-red-900/50 p-4 text-sm text-red-300">
+			{analysisError}
+		</div>
+	{/if}
+
+	{#if segments.length > 0}
+		<div class="mt-6">
+			<h2 class="mb-2 text-lg font-semibold">Analysis — Table</h2>
+
+			<!-- Filter checkboxes -->
+			<div class="mb-3 flex flex-wrap gap-4 text-sm">
+				<label class="flex items-center gap-2 rounded px-2 py-1 bg-green-900/40 text-green-300">
+					<input type="checkbox" bind:checked={showGood} /> Good
+				</label>
+				<label class="flex items-center gap-2 rounded px-2 py-1 bg-yellow-900/40 text-yellow-300">
+					<input type="checkbox" bind:checked={showFiller} /> Filler Words
+				</label>
+				<label class="flex items-center gap-2 rounded px-2 py-1 bg-red-900/40 text-red-300">
+					<input type="checkbox" bind:checked={showRetake} /> Retake
+				</label>
+				<label class="flex items-center gap-2 rounded px-2 py-1 bg-neutral-700/40 text-neutral-400">
+					<input type="checkbox" bind:checked={showDeadSpace} /> Dead Space
+				</label>
+			</div>
+
+			<div class="max-h-96 overflow-auto rounded bg-neutral-900 p-4">
+				<table class="w-full text-left text-xs">
+					<thead class="sticky top-0 bg-neutral-900 text-neutral-400">
+						<tr>
+							<th class="pb-2 pr-4">Start</th>
+							<th class="pb-2 pr-4">End</th>
+							<th class="pb-2 pr-4">Category</th>
+							<th class="pb-2">Text</th>
+						</tr>
+					</thead>
+					<tbody>
+						{#each filteredSegments() as segment}
+							<tr class="border-t border-neutral-800 {categoryColors[segment.category]}">
+								<td class="py-1 pr-4 font-mono">{formatMs(segment.start)}</td>
+								<td class="py-1 pr-4 font-mono">{formatMs(segment.end)}</td>
+								<td class="py-1 pr-4 font-medium">{categoryLabels[segment.category]}</td>
+								<td class="py-1">{segment.text}</td>
+							</tr>
+						{/each}
+					</tbody>
+				</table>
+			</div>
+
+			<h2 class="mb-2 mt-6 text-lg font-semibold">Analysis — JSON</h2>
+			<pre class="max-h-96 overflow-auto rounded bg-neutral-900 p-4 text-xs text-neutral-100">{JSON.stringify(segments, null, 2)}</pre>
 		</div>
 	{/if}
 </div>
