@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { onDestroy } from "svelte";
+	import { Button } from "$lib/components/ui/button";
 	import { Switch } from "$lib/components/ui/switch";
 	import { Slider } from "$lib/components/ui/slider";
 	import { videoEditorState as editor } from "$lib/stores/video-editor.svelte";
@@ -22,8 +23,8 @@
 		{
 			key: "retake",
 			color: "#3b82f6",
-			label: "retakes",
-			description: (count: number) => `${count} restart segments detected`
+			label: "alternate variants",
+			description: (count: number) => `${count} locked semantic alternates or discarded fragments`
 		}
 	] as const;
 
@@ -33,9 +34,11 @@
 
 	let deadSpaceThresholdDraft = $state(editor.deadSpaceThreshold);
 	let clipEndTrimDraft = $state(editor.clipEndTrim);
+	let copiedState = $state<"idle" | "copied" | "error">("idle");
 
 	let deadSpaceThresholdTimeout: ReturnType<typeof setTimeout> | null = null;
 	let clipEndTrimTimeout: ReturnType<typeof setTimeout> | null = null;
+	let copyResetTimeout: ReturnType<typeof setTimeout> | null = null;
 
 	function scheduleDeadSpaceThresholdCommit(value: number) {
 		if (deadSpaceThresholdTimeout) {
@@ -77,6 +80,26 @@
 		editor.clipEndTrim = value;
 	}
 
+	async function copyLLMJson() {
+		if (!editor.hasDebugExport) return;
+
+		try {
+			await navigator.clipboard.writeText(editor.debugExportJson);
+			copiedState = "copied";
+		} catch {
+			copiedState = "error";
+		}
+
+		if (copyResetTimeout) {
+			clearTimeout(copyResetTimeout);
+		}
+
+		copyResetTimeout = setTimeout(() => {
+			copiedState = "idle";
+			copyResetTimeout = null;
+		}, 1800);
+	}
+
 	onDestroy(() => {
 		if (deadSpaceThresholdTimeout) {
 			clearTimeout(deadSpaceThresholdTimeout);
@@ -84,6 +107,10 @@
 
 		if (clipEndTrimTimeout) {
 			clearTimeout(clipEndTrimTimeout);
+		}
+
+		if (copyResetTimeout) {
+			clearTimeout(copyResetTimeout);
 		}
 	});
 </script>
@@ -94,6 +121,32 @@
 		<p class="text-[12px] text-snip-text-secondary">
 			{editor.selectedCutCount} cuts · <span class="font-medium text-primary">−{editor.formatDuration(editor.selectedCutDurationMs)}</span>
 		</p>
+	</div>
+
+	<div class="border-t border-snip-border"></div>
+
+	<div class="px-4 py-3">
+		<div class="flex items-center justify-between gap-3 rounded-xl border border-snip-border bg-snip-surface-elevated px-3 py-2.5">
+			<div class="min-w-0">
+				<p class="text-[12px] font-medium text-snip-text-primary">Debug export JSON</p>
+				<p class="text-[11px] text-snip-text-muted">
+					Transcript, raw LLM output, labels, line/slot summaries, chunks, selections, and derived segments.
+				</p>
+			</div>
+			<Button
+				variant="outline"
+				size="sm"
+				class="border-snip-border bg-snip-surface text-snip-text-primary hover:bg-snip-surface-elevated"
+				disabled={!editor.hasDebugExport}
+				onclick={() => void copyLLMJson()}
+			>
+				{copiedState === "copied"
+					? "Copied"
+					: copiedState === "error"
+						? "Copy failed"
+						: "Copy debug JSON"}
+			</Button>
+		</div>
 	</div>
 
 	<div class="border-t border-snip-border"></div>
@@ -113,7 +166,9 @@
 					size="sm"
 					class="flex-shrink-0"
 					checked={editor.cutToggles[row.key]}
+					disabled={row.key === "retake"}
 					onCheckedChange={(value: boolean) => {
+						if (row.key === "retake") return;
 						editor.cutToggles = { ...editor.cutToggles, [row.key]: value };
 					}}
 				/>
@@ -133,7 +188,9 @@
 			<div class="flex items-center justify-between gap-3">
 				<div>
 					<p class="text-[12px] font-medium text-snip-text-primary">Min pause length</p>
-					<p class="text-[11px] text-snip-text-muted">Silence shorter than this is kept.</p>
+					<p class="text-[11px] text-snip-text-muted">
+						Rebuilds pause chunks and silence cuts without rerunning the LLM.
+					</p>
 				</div>
 				<span class="rounded-full border border-snip-border bg-snip-surface-elevated px-2 py-[3px] font-mono text-[11px] text-snip-text-secondary">
 					{deadSpaceThresholdDraft} ms

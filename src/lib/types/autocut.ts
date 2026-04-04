@@ -81,6 +81,145 @@ export interface AutocutTranscriptWord {
 	confidence: number;
 }
 
+export const WORD_STATUSES = [
+	"selected",
+	"alternate",
+	"filler",
+	"discarded"
+] as const;
+
+export type WordStatus = (typeof WORD_STATUSES)[number];
+
+export interface WordSemanticLabel {
+	index: number;
+	lineId: string | null;
+	lineOrder: number | null;
+	slotId: string | null;
+	slotOrder: number | null;
+	variantId: string | null;
+	lockId: string | null;
+	status: WordStatus;
+}
+
+export interface SlotVariantLockGroup {
+	lockId: string | null;
+	wordStartIndex: number;
+	wordEndIndex: number;
+	text: string;
+}
+
+export interface SlotVariantSpan {
+	lineId: string;
+	lineOrder: number;
+	slotId: string;
+	slotOrder: number;
+	variantId: string;
+	lockGroups: SlotVariantLockGroup[];
+	wordRanges: Array<[number, number]>;
+	text: string;
+	status: "selected" | "alternate";
+}
+
+export interface SpeechChunkPause {
+	afterWordIndex: number;
+	durationMs: number;
+}
+
+export interface SpeechChunk {
+	chunkId: string;
+	wordStartIndex: number;
+	wordEndIndex: number;
+	start: number;
+	end: number;
+	text: string;
+	internalPauses: SpeechChunkPause[];
+	durationMs: number;
+	lineIds: string[];
+	slotIds: string[];
+	variantIds: string[];
+	statuses: WordStatus[];
+}
+
+export interface LineSlot {
+	lineId: string;
+	lineOrder: number;
+	slotId: string;
+	slotOrder: number;
+	selectedVariantId: string | null;
+	variants: SlotVariantSpan[];
+}
+
+export interface DebugLineSummary {
+	lineId: string;
+	lineOrder: number;
+	slotIds: string[];
+	selectedVariantIds: string[];
+	text: string;
+	selectedText: string;
+	wordRange: {
+		start: number | null;
+		end: number | null;
+	};
+}
+
+export interface DebugSlotSummary {
+	lineId: string;
+	lineOrder: number;
+	slotId: string;
+	slotOrder: number;
+	selectedVariantId: string | null;
+	text: string;
+	selectedText: string;
+	variantIds: string[];
+	wordRange: {
+		start: number | null;
+		end: number | null;
+	};
+}
+
+export interface DebugVariantSummary {
+	lineId: string;
+	lineOrder: number;
+	slotId: string;
+	slotOrder: number;
+	variantId: string;
+	status: "selected" | "alternate";
+	text: string;
+	wordRanges: Array<[number, number]>;
+	lockGroups: SlotVariantLockGroup[];
+	chunkIds: string[];
+	chunkCount: number;
+}
+
+export interface DebugProblem {
+	type:
+		| "slot_selected_variant_missing_words"
+		| "slot_multiple_selected_variants"
+		| "slot_has_no_selected_variant"
+		| "variant_spans_multiple_chunks"
+		| "slot_has_only_discarded_words"
+		| "filler_inside_selected_lock"
+		| "selected_variant_conflicts_with_alternate"
+		| "line_has_gap_in_selected_slots";
+	lineId?: string | null;
+	slotId?: string | null;
+	variantId?: string | null;
+	message: string;
+}
+
+export interface SemanticDebugPayload {
+	lineSummaries: DebugLineSummary[];
+	slotSummaries: DebugSlotSummary[];
+	variantSummaries: DebugVariantSummary[];
+	problems: DebugProblem[];
+}
+
+export interface AnalyzeTranscriptResponse {
+	labels: WordSemanticLabel[];
+	llmOutput: unknown;
+	debug?: SemanticDebugPayload;
+}
+
 export interface AutocutTranscriptSegment {
 	id: string;
 	speaker: string;
@@ -101,7 +240,18 @@ export interface AutocutAnalysisSegment {
 	end: number;
 	category: AutocutAnalysisSegmentCategory;
 	text: string;
+	wordStartIndex?: number | null;
+	wordEndIndex?: number | null;
+	lineId?: string | null;
+	lineOrder?: number | null;
+	slotId?: string | null;
+	slotOrder?: number | null;
+	variantId?: string | null;
+	lockId?: string | null;
+	status?: WordStatus | null;
 	takeId?: string | null;
+	unitId?: string | null;
+	unitOrder?: number | null;
 	beatId?: string | null;
 }
 
@@ -120,6 +270,9 @@ export interface AutocutEditDecision {
 	reason: string;
 	startMs: number;
 	endMs: number;
+	lineId?: string | null;
+	slotId?: string | null;
+	variantId?: string | null;
 	takeId?: string | null;
 	beatId?: string | null;
 }

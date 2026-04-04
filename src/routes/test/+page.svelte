@@ -31,7 +31,8 @@
 		AutocutAnalysisSegment,
 		AutocutJobResponse,
 		AutocutTranscriptWord,
-		CreateAutocutJobRequest
+		CreateAutocutJobRequest,
+		WordSemanticLabel
 	} from "$lib/types/autocut";
 	import {
 		buildAnalysisSegments,
@@ -52,8 +53,7 @@
 	let currentSegmentIndex = $state(0);
 
 	// Transcription state
-	interface WordLabel {
-		index: number;
+	interface WordLabel extends WordSemanticLabel {
 		category: "good" | "filler_words" | "retake";
 		takeId?: string | null;
 		beatId?: string | null;
@@ -151,6 +151,13 @@
 			? buildAnalysisSegments(transcriptWords, wordLabels, analysisOptions)
 			: []
 	);
+
+	function legacyCategoryForStatus(status: WordSemanticLabel["status"]): WordLabel["category"] {
+		if (status === "selected") return "good";
+		if (status === "filler") return "filler_words";
+
+		return "retake";
+	}
 
 	function variantId(beatId: string, takeId: string): string {
 		return `${beatId}::${takeId}`;
@@ -738,7 +745,12 @@
 			if (runId !== currentTranscriptionRun) return;
 
 			if (res.ok && Array.isArray(data.labels)) {
-				wordLabels = data.labels;
+				wordLabels = data.labels.map((label: WordSemanticLabel) => ({
+					...label,
+					category: legacyCategoryForStatus(label.status),
+					takeId: label.variantId ?? null,
+					beatId: label.slotId ?? null
+				}));
 			} else {
 				analysisError = data.error ?? "Analysis failed";
 			}
