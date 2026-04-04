@@ -1,7 +1,17 @@
 {
   "permissions": {
     "allow": [
-      "WebFetch(domain:tweakcn.com)"
+      "WebFetch(domain:tweakcn.com)",
+      "Bash(npm install:*)",
+      "WebFetch(domain:www.assemblyai.com)",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\" -X POST \"https://api.assemblyai.com/v2/upload\" -H \"Authorization: 19007da79b0c47e4b2212fe96618ed4e\" -H \"Content-Type: application/octet-stream\" --data-binary \"test\")",
+      "Bash(curl -s -X POST \"https://api.assemblyai.com/v2/upload\" -H \"Authorization: 19007da79b0c47e4b2212fe96618ed4e\" -H \"Content-Type: application/octet-stream\" --data-binary \"test\")",
+      "Bash(curl -s -X POST \"https://api.assemblyai.com/v2/transcript\" -H \"Authorization: 19007da79b0c47e4b2212fe96618ed4e\" -H \"Content-Type: application/json\" -d '{\"audio_url\": \"https://cdn.assemblyai.com/upload/7831c2096fe5145adcb339b7959b103d4eb1635c10302d38e4eec9005686a60d/1afddc12-a1e6-4f53-a9bd-75f97d3a54e5\"}')",
+      "Bash(curl -s \"https://www.assemblyai.com/docs/api-reference/transcripts/get\")",
+      "Bash(node -e \"require\\('zod'\\)\")"
+    ],
+    "additionalDirectories": [
+      "/Users/jordannetz/Desktop/hackathons/pantherhacks2026/PantherHacks2026/src/routes/api/video/transcribe"
     ]
   }
 }
