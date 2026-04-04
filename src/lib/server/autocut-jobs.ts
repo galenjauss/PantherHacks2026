@@ -1,5 +1,6 @@
 import {
 	DEFAULT_AUTOCUT_JOB_OPTIONS,
+	type AutocutAnalysisSegment,
 	type AutocutEditDecision,
 	type AutocutEditPlan,
 	type AutocutJob,
@@ -8,7 +9,8 @@ import {
 	type AutocutRenderOutput,
 	type AutocutSource,
 	type AutocutTranscript,
-	type AutocutTranscriptSegment
+	type AutocutTranscriptSegment,
+	type AutocutTranscriptWord
 } from "$lib/types/autocut";
 
 interface CreateAutocutJobInput {
@@ -17,6 +19,9 @@ interface CreateAutocutJobInput {
 	metadata: Record<string, string>;
 	language: string;
 	speakersExpected: number | null;
+	transcriptText?: string;
+	transcriptWords?: AutocutTranscriptWord[];
+	analysisSegments?: AutocutAnalysisSegment[];
 }
 
 interface AutocutJobRecord extends CreateAutocutJobInput {
@@ -156,6 +161,191 @@ function scaleMs(ratio: number, durationMs: number): number {
 	return Math.round(ratio * durationMs);
 }
 
+function buildCompletedStage<TOutput>(
+	output: TOutput | null,
+	completedAt: string
+): AutocutJobStage<TOutput> {
+	return {
+		status: "completed",
+		progress: 100,
+		startedAt: completedAt,
+		completedAt,
+		output,
+		error: null
+	};
+}
+
+function averageConfidence(words: AutocutTranscriptWord[]): number {
+	if (words.length === 0) {
+		return 0.95;
+	}
+
+	const total = words.reduce((sum, word) => sum + word.confidence, 0);
+
+	return Number((total / words.length).toFixed(3));
+}
+
+function getWordsForRange(
+	words: AutocutTranscriptWord[],
+	startMs: number,
+	endMs: number
+): AutocutTranscriptWord[] {
+	return words.filter((word) => word.start < endMs && word.end > startMs);
+}
+
+function buildActualTranscript(
+	jobId: string,
+	source: AutocutSource,
+	language: string,
+	createdAtMs: number,
+	transcriptWords: AutocutTranscriptWord[],
+	analysisSegments: AutocutAnalysisSegment[] | undefined,
+	transcriptText: string | undefined
+): AutocutTranscript {
+	const speechSegments = (analysisSegments ?? []).filter(
+		(segment) => segment.category !== "dead_space" && segment.text.trim().length > 0
+	);
+
+	const segments: AutocutTranscriptSegment[] =
+		speechSegments.length > 0
+			? speechSegments.map((segment, index) => ({
+					id: `${jobId}-segment-${index + 1}`,
+					speaker: "Speaker 1",
+					startMs: segment.start,
+					endMs: segment.end,
+					text: segment.text.trim(),
+					confidence: averageConfidence(
+						getWordsForRange(transcriptWords, segment.start, segment.end)
+					)
+				}))
+			: [
+					{
+						id: `${jobId}-segment-1`,
+						speaker: "Speaker 1",
+						startMs: transcriptWords[0]?.start ?? 0,
+						endMs:
+							transcriptWords[transcriptWords.length - 1]?.end ?? source.durationMs,
+						text:
+							transcriptText?.trim() ||
+							transcriptWords.map((word) => word.text).join(" "),
+						confidence: averageConfidence(transcriptWords)
+					}
+				];
+
+	return {
+		language,
+		durationMs: source.durationMs,
+		generatedAt: toIsoString(createdAtMs),
+		segments
+	};
+}
+
+function summarizeActualPlan(decisions: AutocutEditDecision[]): string {
+	const hasFiller = decisions.some((decision) => decision.category === "filler");
+	const hasRetakes = decisions.some((decision) => decision.category === "retake");
+	const hasSilence = decisions.some((decision) => decision.category === "silence");
+
+	const parts = ["Keep the usable content"];
+
+	if (hasFiller) {
+		parts.push("trim filler words");
+	}
+
+	if (hasRetakes) {
+		parts.push("remove retakes");
+	}
+
+	if (hasSilence) {
+		parts.push("cut dead air");
+	}
+
+	return `${parts.join(", ")}.`;
+}
+
+function buildActualEditPlan(
+	jobId: string,
+	source: AutocutSource,
+	createdAtMs: number,
+	analysisSegments: AutocutAnalysisSegment[]
+): AutocutEditPlan {
+	const goodSegments = analysisSegments.filter((segment) => segment.category === "good");
+	let goodIndex = 0;
+
+	const decisions: AutocutEditDecision[] = analysisSegments
+		.filter((segment) => segment.end > segment.start)
+		.map((segment, index) => {
+			if (segment.category === "good") {
+				goodIndex += 1;
+				const isFirstGood = goodIndex === 1;
+				const isLastGood = goodIndex === goodSegments.length && goodSegments.length > 1;
+
+				return {
+					id: `${jobId}-decision-${index + 1}`,
+					action: "keep",
+					category: isFirstGood ? "hook" : isLastGood ? "cta" : "context",
+					label: isFirstGood
+						? "Keep opening beat"
+						: isLastGood
+							? "Keep closing beat"
+							: "Keep core content",
+					reason: isFirstGood
+						? "This section opens the clip with useful content."
+						: isLastGood
+							? "This section closes the clip cleanly."
+							: "This section contributes to the final intended message.",
+					startMs: segment.start,
+					endMs: segment.end
+				};
+			}
+
+			if (segment.category === "filler_words") {
+				return {
+					id: `${jobId}-decision-${index + 1}`,
+					action: "trim",
+					category: "filler",
+					label: "Trim filler words",
+					reason: "These words slow the pacing without adding meaning.",
+					startMs: segment.start,
+					endMs: segment.end
+				};
+			}
+
+			if (segment.category === "retake") {
+				return {
+					id: `${jobId}-decision-${index + 1}`,
+					action: "cut",
+					category: "retake",
+					label: "Remove retake",
+					reason: "This attempt is superseded by a cleaner take later in the clip.",
+					startMs: segment.start,
+					endMs: segment.end
+				};
+			}
+
+			return {
+				id: `${jobId}-decision-${index + 1}`,
+				action: "cut",
+				category: "silence",
+				label: "Trim dead air",
+				reason: "This gap slows the clip without adding content.",
+				startMs: segment.start,
+				endMs: segment.end
+			};
+		});
+
+	const estimatedOutputDurationMs = decisions
+		.filter((decision) => decision.action !== "cut")
+		.reduce((total, decision) => total + (decision.endMs - decision.startMs), 0);
+
+	return {
+		generatedAt: toIsoString(createdAtMs),
+		summary: summarizeActualPlan(decisions),
+		estimatedOutputDurationMs:
+			estimatedOutputDurationMs > 0 ? estimatedOutputDurationMs : source.durationMs,
+		decisions
+	};
+}
+
 function buildTranscript(
 	jobId: string,
 	source: AutocutSource,
@@ -283,18 +473,46 @@ function buildSnapshot(record: AutocutJobRecord, nowMs = Date.now()): AutocutJob
 	const planningEndMs = transcriptionEndMs + STAGE_SCHEDULE_MS.planning;
 	const renderEndMs = planningEndMs + STAGE_SCHEDULE_MS.rendering;
 
-	const transcript = buildTranscript(
-		record.id,
-		record.source,
-		record.language,
-		record.speakersExpected,
-		record.createdAtMs
-	);
-	const editPlan = buildEditPlan(record.id, record.source, record.createdAtMs);
+	const actualTranscript =
+		record.transcriptWords && record.transcriptWords.length > 0
+			? buildActualTranscript(
+					record.id,
+					record.source,
+					record.language,
+					record.createdAtMs,
+					record.transcriptWords,
+					record.analysisSegments,
+					record.transcriptText
+				)
+			: null;
+	const actualEditPlan =
+		record.analysisSegments && record.analysisSegments.length > 0
+			? buildActualEditPlan(
+					record.id,
+					record.source,
+					record.createdAtMs,
+					record.analysisSegments
+				)
+			: null;
+
+	const transcript =
+		actualTranscript ??
+		buildTranscript(
+			record.id,
+			record.source,
+			record.language,
+			record.speakersExpected,
+			record.createdAtMs
+		);
+	const editPlan = actualEditPlan ?? buildEditPlan(record.id, record.source, record.createdAtMs);
 	const renderOutput = buildRenderOutput(record.id, record.source, editPlan, record.options);
 
-	const transcriptionStage = buildStage(nowMs, queueEndMs, transcriptionEndMs, transcript);
-	const planningStage = buildStage(nowMs, transcriptionEndMs, planningEndMs, editPlan);
+	const transcriptionStage = actualTranscript
+		? buildCompletedStage(transcript, transcript.generatedAt)
+		: buildStage(nowMs, queueEndMs, transcriptionEndMs, transcript);
+	const planningStage = actualEditPlan
+		? buildCompletedStage(editPlan, editPlan.generatedAt)
+		: buildStage(nowMs, transcriptionEndMs, planningEndMs, editPlan);
 	const renderingStage = record.options.renderOutput
 		? buildStage(nowMs, planningEndMs, renderEndMs, renderOutput)
 		: {
@@ -307,17 +525,18 @@ function buildSnapshot(record: AutocutJobRecord, nowMs = Date.now()): AutocutJob
 			} satisfies AutocutJobStage<AutocutRenderOutput>;
 
 	const overallEndMs = record.options.renderOutput ? renderEndMs : planningEndMs;
+	const usesActualStageOutputs = Boolean(actualTranscript) || Boolean(actualEditPlan);
 
 	let status: AutocutJob["status"] = "completed";
 	let currentStep = "Auto-cut complete";
 
-	if (nowMs < queueEndMs) {
+	if (!actualTranscript && nowMs < queueEndMs) {
 		status = "queued";
 		currentStep = "Queued for transcription";
-	} else if (nowMs < transcriptionEndMs) {
+	} else if (!actualTranscript && nowMs < transcriptionEndMs) {
 		status = "transcribing";
 		currentStep = "Generating timestamped transcript";
-	} else if (nowMs < planningEndMs) {
+	} else if (!actualEditPlan && nowMs < planningEndMs) {
 		status = "planning";
 		currentStep = "Building AI cut plan";
 	} else if (record.options.renderOutput && nowMs < renderEndMs) {
@@ -325,11 +544,26 @@ function buildSnapshot(record: AutocutJobRecord, nowMs = Date.now()): AutocutJob
 		currentStep = "Preparing cleaned video output";
 	}
 
-	const progress = clamp(
-		Math.round(((Math.min(nowMs, overallEndMs) - record.createdAtMs) / (overallEndMs - record.createdAtMs)) * 100),
-		0,
-		100
-	);
+	const progress = usesActualStageOutputs
+		? Math.round(
+				[
+					transcriptionStage.progress,
+					planningStage.progress,
+					...(record.options.renderOutput ? [renderingStage.progress] : [])
+				].reduce((total, stageProgress) => total + stageProgress, 0) /
+					(record.options.renderOutput ? 3 : 2)
+			)
+		: clamp(
+				Math.round(
+					((Math.min(nowMs, overallEndMs) - record.createdAtMs) /
+						(overallEndMs - record.createdAtMs)) *
+						100
+				),
+				0,
+				100
+			);
+
+	const updatedAtMs = usesActualStageOutputs ? nowMs : Math.min(nowMs, overallEndMs);
 
 	return {
 		id: record.id,
@@ -338,7 +572,7 @@ function buildSnapshot(record: AutocutJobRecord, nowMs = Date.now()): AutocutJob
 		currentStep,
 		nextPollAfterMs: status === "completed" ? 0 : NEXT_POLL_AFTER_MS,
 		createdAt: toIsoString(record.createdAtMs),
-		updatedAt: toIsoString(Math.min(nowMs, overallEndMs)),
+		updatedAt: toIsoString(updatedAtMs),
 		language: record.language,
 		speakersExpected: record.speakersExpected,
 		source: record.source,

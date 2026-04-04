@@ -209,7 +209,10 @@ export const POST: RequestHandler = async ({ request, url }) => {
 		metadata: payload.metadata ?? {},
 		language: payload.language?.trim() || "en",
 		speakersExpected:
-			payload.speakersExpected && payload.speakersExpected > 0 ? payload.speakersExpected : null
+			payload.speakersExpected && payload.speakersExpected > 0 ? payload.speakersExpected : null,
+		transcriptText: payload.transcriptText,
+		transcriptWords: payload.transcriptWords,
+		analysisSegments: payload.analysisSegments
 	});
 
 	const response: AutocutJobResponse = { job };

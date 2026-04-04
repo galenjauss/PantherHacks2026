@@ -27,6 +27,7 @@ export type AutocutDecisionCategory =
 	| "hook"
 	| "context"
 	| "demo"
+	| "filler"
 	| "retake"
 	| "silence"
 	| "payoff"
@@ -60,6 +61,9 @@ export interface CreateAutocutJobRequest {
 	speakersExpected?: number;
 	metadata?: Record<string, string>;
 	options?: Partial<AutocutJobOptions>;
+	transcriptText?: string;
+	transcriptWords?: AutocutTranscriptWord[];
+	analysisSegments?: AutocutAnalysisSegment[];
 }
 
 export interface AutocutSource {
@@ -70,6 +74,13 @@ export interface AutocutSource {
 	sourceUrl: string | null;
 }
 
+export interface AutocutTranscriptWord {
+	text: string;
+	start: number;
+	end: number;
+	confidence: number;
+}
+
 export interface AutocutTranscriptSegment {
 	id: string;
 	speaker: string;
@@ -77,6 +88,19 @@ export interface AutocutTranscriptSegment {
 	endMs: number;
 	text: string;
 	confidence: number;
+}
+
+export type AutocutAnalysisSegmentCategory =
+	| "good"
+	| "filler_words"
+	| "retake"
+	| "dead_space";
+
+export interface AutocutAnalysisSegment {
+	start: number;
+	end: number;
+	category: AutocutAnalysisSegmentCategory;
+	text: string;
 }
 
 export interface AutocutTranscript {

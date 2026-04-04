@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { onDestroy, untrack } from "svelte";
 	import { Button, buttonVariants } from "$lib/components/ui/button";
 	import {
 		Card,
@@ -25,11 +26,23 @@
 	import { Separator } from "$lib/components/ui/separator";
 	import { Badge } from "$lib/components/ui/badge";
 	import { Spinner } from "$lib/components/ui/spinner";
+	import { Slider } from "$lib/components/ui/slider";
+	import type {
+		AutocutAnalysisSegment,
+		AutocutJobResponse,
+		AutocutTranscriptWord,
+		CreateAutocutJobRequest
+	} from "$lib/types/autocut";
+	import {
+		buildAnalysisSegments,
+		DEFAULT_ANALYSIS_SEGMENT_OPTIONS
+	} from "$lib/video/analysis-segments";
 	import { cn } from "$lib/utils.js";
 	import AlertCircleIcon from "@lucide/svelte/icons/circle-alert";
 	let selectedFile = $state<File | null>(null);
 	let videoUrl = $state<string | null>(null);
 	let videoEl = $state<HTMLVideoElement>();
+	let videoDurationMs = $state<number | null>(null);
 	let uploading = $state(false);
 	let response = $state("");
 	let error = $state("");
@@ -39,31 +52,23 @@
 	let currentSegmentIndex = $state(0);
 
 	// Transcription state
-	interface TranscriptWord {
-		text: string;
-		start: number;
-		end: number;
-		confidence: number;
-	}
-
-	interface Segment {
-		start: number;
-		end: number;
-		category: "good" | "filler_words" | "retake" | "dead_space";
-		text: string;
+	interface WordLabel {
+		index: number;
+		category: "good" | "filler_words" | "retake";
 	}
 
 	let transcribing = $state(false);
 	let transcriptId = $state("");
 	let transcriptStatus = $state("");
 	let transcriptText = $state("");
-	let transcriptWords = $state<TranscriptWord[]>([]);
+	let transcriptWords = $state<AutocutTranscriptWord[]>([]);
+	let wordLabels = $state<WordLabel[]>([]);
 	let transcriptError = $state("");
 	let pollingTranscript = $state(false);
 
 	// Analysis state
 	let analyzing = $state(false);
-	let segments = $state<Segment[]>([]);
+	let creatingAutocutJob = $state(false);
 	let analysisError = $state("");
 
 	// Filter state
@@ -71,6 +76,13 @@
 	let showFiller = $state(true);
 	let showRetake = $state(true);
 	let showDeadSpace = $state(true);
+	let deadSpaceThreshold = $state(DEFAULT_ANALYSIS_SEGMENT_OPTIONS.deadSpaceThresholdMs);
+	let clipEndTrim = $state(DEFAULT_ANALYSIS_SEGMENT_OPTIONS.clipEndTrimMs);
+	let currentTranscriptionRun = 0;
+	let activeJobSyncToken = 0;
+	let transcriptPollDelay: ReturnType<typeof setTimeout> | null = null;
+	let previewTimeUpdateHandler: (() => void) | null = null;
+	let lastSyncedAnalysisKey = "";
 
 	const categoryRowClass: Record<string, string> = {
 		good: "bg-emerald-500/5 hover:bg-emerald-500/10",
@@ -93,7 +105,192 @@
 		dead_space: "Dead Space"
 	};
 
-	function filteredSegments(): Segment[] {
+	let analysisOptions = $derived({
+		deadSpaceThresholdMs: deadSpaceThreshold,
+		clipEndTrimMs: clipEndTrim
+	});
+
+	let segments = $derived<AutocutAnalysisSegment[]>(
+		transcriptWords.length > 0 && wordLabels.length > 0
+			? buildAnalysisSegments(transcriptWords, wordLabels, analysisOptions)
+			: []
+	);
+
+	onDestroy(() => {
+		currentTranscriptionRun += 1;
+		activeJobSyncToken += 1;
+		clearTranscriptPolling();
+		clearPreviewListener();
+		if (videoUrl) {
+			URL.revokeObjectURL(videoUrl);
+		}
+	});
+
+	function isTranscriptBusy(): boolean {
+		return transcribing || pollingTranscript || analyzing || creatingAutocutJob;
+	}
+
+	function transcribeButtonLabel(): string {
+		if (transcribing) return "Submitting...";
+		if (pollingTranscript) return "Transcribing...";
+		if (analyzing) return "Analyzing...";
+		if (creatingAutocutJob) return "Syncing job...";
+		return "Transcribe";
+	}
+
+	function clearTranscriptPolling() {
+		if (transcriptPollDelay) {
+			clearTimeout(transcriptPollDelay);
+			transcriptPollDelay = null;
+		}
+	}
+
+	function clearPreviewListener() {
+		if (videoEl && previewTimeUpdateHandler) {
+			videoEl.removeEventListener("timeupdate", previewTimeUpdateHandler);
+		}
+
+		previewTimeUpdateHandler = null;
+	}
+
+	function resetJobState() {
+		error = "";
+		response = "";
+		jobId = "";
+		pollResult = "";
+	}
+
+	function resetTranscriptionState() {
+		activeJobSyncToken += 1;
+		clearTranscriptPolling();
+		transcribing = false;
+		pollingTranscript = false;
+		analyzing = false;
+		creatingAutocutJob = false;
+		transcriptId = "";
+		transcriptStatus = "";
+		transcriptText = "";
+		transcriptWords = [];
+		wordLabels = [];
+		transcriptError = "";
+		analysisError = "";
+		lastSyncedAnalysisKey = "";
+		stopPreview();
+	}
+
+	function handleVideoLoadedMetadata() {
+		if (!videoEl) return;
+
+		const durationSeconds = videoEl.duration;
+		videoDurationMs =
+			Number.isFinite(durationSeconds) && durationSeconds > 0
+				? Math.round(durationSeconds * 1000)
+				: null;
+	}
+
+	function waitForNextTranscriptPoll(ms: number): Promise<void> {
+		return new Promise((resolve) => {
+			clearTranscriptPolling();
+			transcriptPollDelay = setTimeout(() => {
+				transcriptPollDelay = null;
+				resolve();
+			}, ms);
+		});
+	}
+
+	function buildAnalysisSyncKey(file: File): string {
+		return JSON.stringify({
+			fileName: file.name,
+			fileSize: file.size,
+			fileLastModified: file.lastModified,
+			transcriptId,
+			wordLabels,
+			analysisOptions
+		});
+	}
+
+	async function syncAutocutJob(
+		syncKey: string,
+		file: File,
+		transcript: string,
+		words: AutocutTranscriptWord[],
+		derivedSegments: AutocutAnalysisSegment[]
+	) {
+		const syncToken = ++activeJobSyncToken;
+		creatingAutocutJob = true;
+		error = "";
+
+		try {
+			const payload: CreateAutocutJobRequest = {
+				fileName: file.name,
+				mimeType: file.type || "video/mp4",
+				sizeBytes: file.size,
+				durationMs: videoDurationMs ?? words[words.length - 1]?.end ?? undefined,
+				metadata: {
+					source: "test-transcribe"
+				},
+				options: {
+					renderOutput: false
+				},
+				transcriptText: transcript,
+				transcriptWords: words,
+				analysisSegments: derivedSegments
+			};
+
+			const res = await fetch("/api/video/autocut", {
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify(payload)
+			});
+
+			const data = (await res.json()) as Partial<AutocutJobResponse> & { error?: string };
+
+			if (syncToken !== activeJobSyncToken || syncKey !== lastSyncedAnalysisKey) return;
+
+			response = JSON.stringify(data, null, 2);
+
+			if (!res.ok || !data.job?.id) {
+				error = data.error ?? "Failed to create autocut job";
+				return;
+			}
+
+			jobId = data.job.id;
+			pollResult = JSON.stringify(data, null, 2);
+		} catch (err) {
+			if (syncToken !== activeJobSyncToken || syncKey !== lastSyncedAnalysisKey) return;
+			error = err instanceof Error ? err.message : "Autocut job request failed";
+		} finally {
+			if (syncToken === activeJobSyncToken && syncKey === lastSyncedAnalysisKey) {
+				creatingAutocutJob = false;
+			}
+		}
+	}
+
+	$effect(() => {
+		const file = selectedFile;
+
+		if (!file || transcriptWords.length === 0 || wordLabels.length === 0 || analyzing) {
+			if (!file || transcriptWords.length === 0 || wordLabels.length === 0) {
+				lastSyncedAnalysisKey = "";
+			}
+			return;
+		}
+
+		const syncKey = buildAnalysisSyncKey(file);
+
+		if (syncKey === lastSyncedAnalysisKey) {
+			return;
+		}
+
+		lastSyncedAnalysisKey = syncKey;
+		const transcript = transcriptText;
+		const words = transcriptWords;
+		untrack(() => {
+			void syncAutocutJob(syncKey, file, transcript, words, segments);
+		});
+	});
+
+	function filteredSegments(): AutocutAnalysisSegment[] {
 		return segments.filter((s) => {
 			if (s.category === "good") return showGood;
 			if (s.category === "filler_words") return showFiller;
@@ -101,6 +298,14 @@
 			if (s.category === "dead_space") return showDeadSpace;
 			return true;
 		});
+	}
+
+	function getDeadSpaceThresholdMs(): number {
+		return analysisOptions.deadSpaceThresholdMs;
+	}
+
+	function getClipEndTrimMs(): number {
+		return analysisOptions.clipEndTrimMs;
 	}
 
 	function formatMs(ms: number): string {
@@ -112,27 +317,23 @@
 	}
 
 	function handleFileChange(e: Event) {
+		currentTranscriptionRun += 1;
 		const input = e.target as HTMLInputElement;
-		selectedFile = input.files?.[0] ?? null;
-		// Create object URL for video preview
+		const nextFile = input.files?.[0] ?? null;
+
+		clearTranscriptPolling();
+		clearPreviewListener();
+
 		if (videoUrl) URL.revokeObjectURL(videoUrl);
-		videoUrl = selectedFile ? URL.createObjectURL(selectedFile) : null;
-		response = "";
-		error = "";
-		jobId = "";
-		pollResult = "";
-		transcriptId = "";
-		transcriptStatus = "";
-		transcriptText = "";
-		transcriptWords = [];
-		transcriptError = "";
-		segments = [];
-		analysisError = "";
-		isPreviewPlaying = false;
-		currentSegmentIndex = 0;
+
+		selectedFile = nextFile;
+		videoUrl = nextFile ? URL.createObjectURL(nextFile) : null;
+		videoDurationMs = null;
+		resetJobState();
+		resetTranscriptionState();
 	}
 
-	function getGoodSegments(): Segment[] {
+	function getGoodSegments(): AutocutAnalysisSegment[] {
 		return segments.filter((s) => s.category === "good");
 	}
 
@@ -140,18 +341,21 @@
 		const good = getGoodSegments();
 		if (!videoEl || good.length === 0) return;
 
+		clearPreviewListener();
 		isPreviewPlaying = true;
 		currentSegmentIndex = 0;
 		playSegment(0, good);
 	}
 
-	function playSegment(index: number, good: Segment[]) {
+	function playSegment(index: number, good: AutocutAnalysisSegment[]) {
 		if (!videoEl || index >= good.length) {
 			isPreviewPlaying = false;
 			currentSegmentIndex = 0;
+			clearPreviewListener();
 			return;
 		}
 
+		clearPreviewListener();
 		currentSegmentIndex = index;
 		const seg = good[index];
 		videoEl.currentTime = seg.start / 1000;
@@ -160,31 +364,31 @@
 		const onTimeUpdate = () => {
 			if (!videoEl) return;
 			if (videoEl.currentTime >= seg.end / 1000) {
-				videoEl.removeEventListener("timeupdate", onTimeUpdate);
+				clearPreviewListener();
 				videoEl.pause();
 				// Move to the next good segment
 				playSegment(index + 1, good);
 			}
 		};
 
+		previewTimeUpdateHandler = onTimeUpdate;
 		videoEl.addEventListener("timeupdate", onTimeUpdate);
 	}
 
 	function stopPreview() {
-		if (!videoEl) return;
-		videoEl.pause();
+		clearPreviewListener();
+		if (videoEl) {
+			videoEl.pause();
+		}
 		isPreviewPlaying = false;
 		currentSegmentIndex = 0;
 	}
 
 	async function upload() {
-		if (!selectedFile) return;
+		if (!selectedFile || isTranscriptBusy()) return;
 
 		uploading = true;
-		error = "";
-		response = "";
-		jobId = "";
-		pollResult = "";
+		resetJobState();
 
 		try {
 			const formData = new FormData();
@@ -223,14 +427,13 @@
 	}
 
 	async function transcribe() {
-		if (!selectedFile) return;
+		if (!selectedFile || uploading || isTranscriptBusy()) return;
 
+		const runId = ++currentTranscriptionRun;
+
+		resetJobState();
+		resetTranscriptionState();
 		transcribing = true;
-		transcriptError = "";
-		transcriptId = "";
-		transcriptStatus = "";
-		transcriptText = "";
-		transcriptWords = [];
 
 		try {
 			const formData = new FormData();
@@ -243,78 +446,112 @@
 
 			const data = await res.json();
 
+			if (runId !== currentTranscriptionRun) return;
+
 			if (res.ok && data.transcript_id) {
 				transcriptId = data.transcript_id;
-				transcriptStatus = data.status;
-				// Auto-poll until complete
-				pollTranscript();
+				transcriptStatus = data.status ?? "queued";
+				transcribing = false;
+				await pollTranscript(runId, data.transcript_id);
 			} else {
 				transcriptError = data.error ?? "Failed to start transcription";
 			}
 		} catch (err) {
+			if (runId !== currentTranscriptionRun) return;
 			transcriptError = err instanceof Error ? err.message : "Request failed";
 		} finally {
-			transcribing = false;
+			if (runId === currentTranscriptionRun) {
+				transcribing = false;
+			}
 		}
 	}
 
-	async function analyzeTranscript() {
+	async function analyzeTranscript(runId: number) {
+		if (transcriptWords.length === 0) return;
+
 		analyzing = true;
 		analysisError = "";
-		segments = [];
 
 		try {
 			const res = await fetch("/api/video/analyze", {
 				method: "POST",
 				headers: { "Content-Type": "application/json" },
-				body: JSON.stringify({ words: transcriptWords })
+				body: JSON.stringify({
+					words: transcriptWords,
+					options: {
+						deadSpaceThresholdMs: getDeadSpaceThresholdMs(),
+						clipEndTrimMs: getClipEndTrimMs()
+					}
+				})
 			});
 
 			const data = await res.json();
 
-			if (res.ok && data.segments) {
-				segments = data.segments;
+			if (runId !== currentTranscriptionRun) return;
+
+			if (res.ok && Array.isArray(data.labels)) {
+				wordLabels = data.labels;
 			} else {
 				analysisError = data.error ?? "Analysis failed";
 			}
 		} catch (err) {
+			if (runId !== currentTranscriptionRun) return;
 			analysisError = err instanceof Error ? err.message : "Analysis request failed";
 		} finally {
-			analyzing = false;
+			if (runId === currentTranscriptionRun) {
+				analyzing = false;
+			}
 		}
 	}
 
-	async function pollTranscript() {
-		if (!transcriptId) return;
+	async function pollTranscript(runId: number, activeTranscriptId: string) {
+		if (!activeTranscriptId || runId !== currentTranscriptionRun) return;
 
 		pollingTranscript = true;
 
 		try {
-			const res = await fetch(`/api/video/transcribe/${transcriptId}`);
-			const data = await res.json();
+			while (runId === currentTranscriptionRun) {
+				const res = await fetch(`/api/video/transcribe/${activeTranscriptId}`);
+				const data = await res.json();
 
-			transcriptStatus = data.status;
+				if (runId !== currentTranscriptionRun) return;
 
-			if (data.status === "completed") {
-				transcriptText = data.text ?? "";
-				transcriptWords = data.words ?? [];
-				pollingTranscript = false;
-				// Auto-trigger LLM analysis
-				if (transcriptWords.length > 0) {
-					analyzeTranscript();
+				if (!res.ok) {
+					transcriptError = data.error ?? `Failed to fetch transcript (${res.status})`;
+					return;
 				}
-			} else if (data.status === "error") {
-				transcriptError = data.error ?? "Transcription failed";
-				pollingTranscript = false;
-			} else {
-				// Still processing, poll again in 3 seconds
-				setTimeout(pollTranscript, 3000);
+
+				transcriptStatus = data.status ?? "";
+
+				if (data.status === "completed") {
+					transcriptText = data.text ?? "";
+					transcriptWords = Array.isArray(data.words) ? data.words : [];
+					if (transcriptWords.length === 0) {
+						transcriptError = "Transcription completed without word timestamps";
+						return;
+					}
+					await analyzeTranscript(runId);
+					return;
+				}
+
+				if (data.status === "error") {
+					transcriptError = data.error ?? "Transcription failed";
+					return;
+				}
+
+				await waitForNextTranscriptPoll(3000);
 			}
 		} catch (err) {
+			if (runId !== currentTranscriptionRun) return;
 			transcriptError = err instanceof Error ? err.message : "Poll failed";
-			pollingTranscript = false;
+		} finally {
+			if (runId === currentTranscriptionRun) {
+				pollingTranscript = false;
+				clearTranscriptPolling();
+			}
 		}
 	}
+
 </script>
 
 <div class="mx-auto max-w-7xl p-6">
@@ -345,6 +582,48 @@
 						</p>
 					{/if}
 
+					<div class="grid gap-4 rounded-lg border bg-muted/30 p-4 sm:grid-cols-2">
+						<div class="space-y-3">
+							<div class="flex items-center justify-between gap-3">
+								<div class="space-y-1">
+									<Label for="dead-space-threshold">Dead space allowed</Label>
+									<p class="text-muted-foreground text-xs">
+										Gaps longer than this become `dead_space` segments.
+									</p>
+								</div>
+								<Badge variant="outline" class="font-mono">{getDeadSpaceThresholdMs()} ms</Badge>
+							</div>
+							<Slider
+								id="dead-space-threshold"
+								type="single"
+								bind:value={deadSpaceThreshold}
+								min={0}
+								max={2000}
+								step={25}
+							/>
+						</div>
+
+						<div class="space-y-3">
+							<div class="flex items-center justify-between gap-3">
+								<div class="space-y-1">
+									<Label for="clip-end-trim">Auto cut clip ends</Label>
+									<p class="text-muted-foreground text-xs">
+										Shortens each `good` clip by this amount at the tail.
+									</p>
+								</div>
+								<Badge variant="outline" class="font-mono">{getClipEndTrimMs()} ms</Badge>
+							</div>
+							<Slider
+								id="clip-end-trim"
+								type="single"
+								bind:value={clipEndTrim}
+								min={0}
+								max={1000}
+								step={25}
+							/>
+						</div>
+					</div>
+
 					{#if videoUrl}
 						<div class="overflow-hidden rounded-lg border bg-muted">
 							<video
@@ -352,6 +631,7 @@
 								src={videoUrl}
 								class="aspect-video w-full object-contain"
 								preload="auto"
+								onloadedmetadata={handleVideoLoadedMetadata}
 								controls
 							>
 								<track kind="captions" />
@@ -377,15 +657,24 @@
 					{/if}
 				</CardContent>
 				<CardFooter class="flex flex-wrap gap-2">
-					<Button onclick={upload} disabled={!selectedFile || uploading}>
-						{uploading ? "Uploading…" : "Upload & create job"}
+					<Button onclick={upload} disabled={!selectedFile || uploading || isTranscriptBusy()}>
+						{uploading ? "Creating mock job…" : "Create mock job"}
 					</Button>
-					<Button onclick={transcribe} disabled={!selectedFile || transcribing} variant="secondary">
-						{transcribing ? "Submitting…" : "Transcribe"}
+					<Button
+						onclick={transcribe}
+						disabled={!selectedFile || uploading || isTranscriptBusy()}
+						variant="secondary"
+					>
+						{transcribeButtonLabel()}
 					</Button>
 					{#if jobId}
 						<Button onclick={pollJob} variant="outline">Poll job status</Button>
 					{/if}
+					<p class="text-muted-foreground w-full text-xs">
+						Create mock job uses the synthetic backend fixture. Transcribe runs the real
+						transcription flow, labels words, derives segments from the current sliders, and
+						syncs an autocut job from that result.
+					</p>
 				</CardFooter>
 			</Card>
 		</div>
@@ -395,7 +684,7 @@
 			{#if error}
 				<Alert variant="destructive">
 					<AlertCircleIcon />
-					<AlertTitle>Upload error</AlertTitle>
+					<AlertTitle>Autocut job error</AlertTitle>
 					<AlertDescription>{error}</AlertDescription>
 				</Alert>
 			{/if}
@@ -416,7 +705,7 @@
 			{#if pollResult}
 				<Card>
 					<CardHeader class="pb-3">
-						<CardTitle class="text-base">Job status</CardTitle>
+						<CardTitle class="text-base">Autocut job snapshot</CardTitle>
 					</CardHeader>
 					<CardContent>
 						<ScrollArea class="h-56 rounded-md border">

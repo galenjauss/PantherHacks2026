@@ -5,6 +5,12 @@ import { generateText, tool } from "ai";
 import { z } from "zod";
 import type { RequestHandler } from "./$types";
 import promptTemplate from "./prompt.md?raw";
+import {
+	buildAnalysisSegments,
+	DEFAULT_ANALYSIS_SEGMENT_OPTIONS,
+	normalizeMs,
+	type AnalysisSegmentOptions
+} from "$lib/video/analysis-segments";
 
 const openrouter = createOpenAI({
 	baseURL: "https://openrouter.ai/api/v1",
@@ -29,60 +35,53 @@ interface WordInput {
 	confidence: number;
 }
 
-interface Segment {
-	start: number;
-	end: number;
-	category: "good" | "filler_words" | "retake" | "dead_space";
-	text: string;
-}
+function validateLabelCoverage(
+	labels: { index: number; category: "good" | "filler_words" | "retake" }[],
+	expectedWordCount: number
+): string | null {
+	const seen = new Set<number>();
 
-function buildSegments(words: WordInput[], labels: { index: number; category: "good" | "filler_words" | "retake" }[]): Segment[] {
-	const labelMap = new Map<number, "good" | "filler_words" | "retake">();
-	for (const l of labels) {
-		labelMap.set(l.index, l.category);
-	}
-
-	const segments: Segment[] = [];
-	const DEAD_SPACE_THRESHOLD = 300; // ms gap to count as dead space
-
-	for (let i = 0; i < words.length; i++) {
-		const word = words[i];
-		const category = labelMap.get(i) ?? "good";
-
-		// Insert dead_space if there's a gap before this word
-		if (i > 0) {
-			const prevEnd = words[i - 1].end;
-			const gap = word.start - prevEnd;
-			if (gap > DEAD_SPACE_THRESHOLD) {
-				// Try to merge with previous segment if it was also dead_space
-				const last = segments[segments.length - 1];
-				if (last && last.category === "dead_space") {
-					last.end = word.start;
-				} else {
-					segments.push({ start: prevEnd, end: word.start, category: "dead_space", text: "" });
-				}
-			}
+	for (const label of labels) {
+		if (!Number.isInteger(label.index)) {
+			return "LLM returned a non-integer word index";
 		}
 
-		// Try to merge with previous segment if same category
-		const last = segments[segments.length - 1];
-		if (last && last.category === category) {
-			last.end = word.end;
-			last.text += " " + word.text;
-		} else {
-			segments.push({ start: word.start, end: word.end, category, text: word.text });
+		if (label.index < 0 || label.index >= expectedWordCount) {
+			return `LLM returned out-of-range index ${label.index}`;
 		}
+
+		if (seen.has(label.index)) {
+			return `LLM returned duplicate index ${label.index}`;
+		}
+
+		seen.add(label.index);
 	}
 
-	return segments;
+	if (seen.size !== expectedWordCount) {
+		return `LLM returned ${seen.size} labels for ${expectedWordCount} words`;
+	}
+
+	return null;
 }
 
 export const POST: RequestHandler = async ({ request }) => {
-	const { words } = await request.json();
+	const { words, options } = await request.json();
 
 	if (!Array.isArray(words) || words.length === 0) {
 		return json({ error: "No words provided" }, { status: 400 });
 	}
+
+	const segmentOptions: AnalysisSegmentOptions = {
+		deadSpaceThresholdMs: normalizeMs(
+			options?.deadSpaceThresholdMs,
+			DEFAULT_ANALYSIS_SEGMENT_OPTIONS.deadSpaceThresholdMs,
+			{ min: 0, max: 3000 }
+		),
+		clipEndTrimMs: normalizeMs(options?.clipEndTrimMs, DEFAULT_ANALYSIS_SEGMENT_OPTIONS.clipEndTrimMs, {
+			min: 0,
+			max: 2000
+		})
+	};
 
 	const timestampedTranscript = words
 		.map((w: { text: string; start: number; end: number; confidence: number }, i: number) =>
@@ -126,7 +125,13 @@ export const POST: RequestHandler = async ({ request }) => {
 	}
 
 	const { labels } = (labelCall as { input: { labels: { index: number; category: "good" | "filler_words" | "retake" }[] } }).input;
-	const segments = buildSegments(words as WordInput[], labels);
+	const validationError = validateLabelCoverage(labels, words.length);
 
-	return json({ segments });
+	if (validationError) {
+		return json({ error: validationError }, { status: 502 });
+	}
+
+	const segments = buildAnalysisSegments(words as WordInput[], labels, segmentOptions);
+
+	return json({ labels, segments });
 };
