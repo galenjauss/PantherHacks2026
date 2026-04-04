@@ -373,6 +373,7 @@ class VideoEditorState {
 			return {
 				id: segmentId(segment, index),
 				type: isCut ? segment.category : "good",
+				start: segment.start,
 				widthPct,
 				label: isCut ? clipStripLabel(segment) : null
 			};
@@ -488,6 +489,12 @@ class VideoEditorState {
 
 	updateCurrentTime(currentTimeSeconds: number) {
 		this.currentTimeMs = Math.max(Math.round(currentTimeSeconds * 1000), 0);
+	}
+
+	seekTo(timeMs: number) {
+		if (!this.videoElement) return;
+		this.videoElement.currentTime = timeMs / 1000;
+		this.currentTimeMs = Math.max(Math.round(timeMs), 0);
 	}
 
 	handleBeforePlaybackEnded() {

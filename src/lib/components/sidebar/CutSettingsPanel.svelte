@@ -30,7 +30,7 @@
 	}
 </script>
 
-<div class="flex flex-col overflow-y-auto pb-[120px] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+<div class="flex flex-col overflow-y-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
 	<div class="flex flex-col gap-3 px-4 pb-3 pt-4">
 		<span class="text-[10px] font-semibold uppercase tracking-[0.25em] text-snip-text-muted">Cut Settings</span>
 

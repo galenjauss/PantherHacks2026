@@ -1,20 +1,63 @@
 <script lang="ts">
+	import { goto } from '$app/navigation';
+	import { onMount } from 'svelte';
 	import { Button } from '$lib/components/ui/button';
+	import { Input } from '$lib/components/ui/input';
+	import { videoEditorState as editor } from '$lib/stores/video-editor.svelte';
 
 	let isActivating = $state(false);
+	let inputRef = $state<HTMLInputElement | null>(null);
 	let activationTimeout: ReturnType<typeof setTimeout> | null = null;
 
-	function handleAddVideosClick() {
-		if (activationTimeout) {
-			clearTimeout(activationTimeout);
-		}
+	function clearActivationTimeout() {
+		if (!activationTimeout) return;
+		clearTimeout(activationTimeout);
+		activationTimeout = null;
+	}
 
+	function handleAddVideosClick() {
+		clearActivationTimeout();
 		isActivating = true;
+		inputRef?.click();
 		activationTimeout = setTimeout(() => {
 			isActivating = false;
 			activationTimeout = null;
-		}, 850);
+		}, 1500);
 	}
+
+	async function handleFileSelection(files: FileList | null) {
+		const file = files?.[0] ?? null;
+		clearActivationTimeout();
+
+		if (!file) {
+			isActivating = false;
+			return;
+		}
+
+		await editor.setFile(file);
+		isActivating = false;
+		await goto('/video-editor');
+	}
+
+	onMount(() => {
+		const handleWindowFocus = () => {
+			if (!isActivating) return;
+
+			window.setTimeout(() => {
+				if (isActivating) {
+					clearActivationTimeout();
+					isActivating = false;
+				}
+			}, 300);
+		};
+
+		window.addEventListener('focus', handleWindowFocus);
+
+		return () => {
+			clearActivationTimeout();
+			window.removeEventListener('focus', handleWindowFocus);
+		};
+	});
 </script>
 
 <svelte:head>
@@ -71,6 +114,14 @@
 	</main>
 
 	<div class="relative z-10 mx-auto w-full max-w-6xl pb-1">
+		<Input
+			bind:ref={inputRef}
+			type="file"
+			accept="video/*"
+			class="hidden"
+			onchange={(event) => handleFileSelection((event.currentTarget as HTMLInputElement).files)}
+		/>
+
 		<Button
 			size="lg"
 			onclick={handleAddVideosClick}

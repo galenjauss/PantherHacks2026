@@ -12,7 +12,8 @@
       "Bash(node -e \"const pkg = require\\('/Users/jordannetz/Desktop/hackathons/pantherhacks2026/PantherHacks2026/node_modules/ai/package.json'\\); console.log\\(pkg.version\\)\")",
       "Bash(node -e \"const ai = require\\('ai'\\); console.log\\(typeof ai.tool, typeof ai.generateText\\)\")",
       "Bash(node -e ':*)",
-      "Bash(npm run:*)"
+      "Bash(npm run:*)",
+      "Bash(npx svelte-check:*)"
     ],
     "additionalDirectories": [
       "/Users/jordannetz/Desktop/hackathons/pantherhacks2026/PantherHacks2026/src/routes/api/video/transcribe"
