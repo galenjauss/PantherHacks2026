@@ -5,9 +5,15 @@
 	import { Input } from '$lib/components/ui/input';
 	import { videoEditorState as editor } from '$lib/stores/video-editor.svelte';
 
+	import UploadIcon from '@lucide/svelte/icons/upload';
+	import WandSparklesIcon from '@lucide/svelte/icons/wand-sparkles';
+
 	let isActivating = $state(false);
+	let isDragging = $state(false);
 	let inputRef = $state<HTMLInputElement | null>(null);
 	let activationTimeout: ReturnType<typeof setTimeout> | null = null;
+
+	const navItems = ['How it works', 'Examples', 'Results preview'];
 
 	function clearActivationTimeout() {
 		if (!activationTimeout) return;
@@ -15,131 +21,166 @@
 		activationTimeout = null;
 	}
 
-	function handleAddVideosClick() {
+	function pulseActivation(duration = 850) {
 		clearActivationTimeout();
 		isActivating = true;
-		inputRef?.click();
 		activationTimeout = setTimeout(() => {
 			isActivating = false;
 			activationTimeout = null;
-		}, 1500);
+		}, duration);
+	}
+
+	function handleUploadClick() {
+		pulseActivation();
+		inputRef?.click();
+	}
+
+	function handleDragEnter(event: DragEvent) {
+		event.preventDefault();
+		isDragging = true;
+	}
+
+	function handleDragOver(event: DragEvent) {
+		event.preventDefault();
+		isDragging = true;
+	}
+
+	function handleDragLeave(event: DragEvent) {
+		event.preventDefault();
+		const nextTarget = event.relatedTarget as Node | null;
+		if (nextTarget && event.currentTarget instanceof Node && event.currentTarget.contains(nextTarget)) {
+			return;
+		}
+		isDragging = false;
+	}
+
+	async function handleDroppedFiles(event: DragEvent) {
+		event.preventDefault();
+		isDragging = false;
+		await handleFileSelection(event.dataTransfer?.files ?? null);
 	}
 
 	async function handleFileSelection(files: FileList | null) {
 		const file = files?.[0] ?? null;
 		clearActivationTimeout();
+		isActivating = false;
 
-		if (!file) {
-			isActivating = false;
-			return;
-		}
+		if (!file) return;
 
 		await editor.setFile(file);
-		isActivating = false;
 		await goto('/video-editor');
 	}
 
 	onMount(() => {
-		const handleWindowFocus = () => {
-			if (!isActivating) return;
-
-			window.setTimeout(() => {
-				if (isActivating) {
-					clearActivationTimeout();
-					isActivating = false;
-				}
-			}, 300);
-		};
-
-		window.addEventListener('focus', handleWindowFocus);
-
-		return () => {
-			clearActivationTimeout();
-			window.removeEventListener('focus', handleWindowFocus);
-		};
+		return () => clearActivationTimeout();
 	});
 </script>
 
 <svelte:head>
-	<title>PantherHacks Editor</title>
+	<title>Snip | Transcript-Aware Cleanup</title>
 	<meta
 		name="description"
-		content="A title screen for transcript-aware video cleanup with room for a wide add-video action."
+		content="Upload audio or video, detect filler words and retakes from the transcript, and jump straight to clean timestamps."
 	/>
 </svelte:head>
 
-<div
-	class="relative flex min-h-svh flex-col overflow-hidden bg-background px-4 py-4 text-foreground sm:px-5"
->
-	<div class="pointer-events-none absolute inset-0 bg-gradient-to-b from-background via-secondary/20 to-background"></div>
-	<div class="pointer-events-none absolute inset-0 bg-[linear-gradient(rgba(148,163,184,0.06)_1px,transparent_1px),linear-gradient(90deg,rgba(148,163,184,0.06)_1px,transparent_1px)] bg-[size:42px_42px] opacity-25"></div>
-	<div class="pointer-events-none absolute left-1/2 top-24 h-72 w-72 -translate-x-1/2 rounded-full bg-primary/12 blur-3xl"></div>
+<div class="dark h-svh overflow-hidden bg-snip-bg text-snip-text-primary">
+	<div class="mx-auto grid h-full w-full max-w-7xl grid-rows-[auto_1fr] px-4 py-4 sm:px-5 lg:px-8">
+		<header class="flex items-center justify-between gap-6 rounded-full border border-snip-border bg-snip-surface px-4 py-3">
+			<div class="flex items-center gap-3">
+				<div class="flex size-10 items-center justify-center rounded-2xl bg-primary text-primary-foreground">
+					<WandSparklesIcon class="size-5" />
+				</div>
+				<div>
+					<p class="text-sm font-semibold tracking-[0.18em] text-white uppercase">Snip</p>
+					<p class="text-xs text-snip-text-secondary">Transcript-first cleanup</p>
+				</div>
+			</div>
 
-	<header class="relative z-10 mx-auto flex w-full max-w-6xl items-center justify-between gap-4">
-		<div
-			class="inline-flex items-center gap-2 rounded-full border border-border/50 bg-background/80 px-3.5 py-1.5 text-[0.72rem] font-medium uppercase tracking-[0.24em] text-muted-foreground"
-		>
-			<span class="h-2.5 w-2.5 rounded-full bg-primary"></span>
-			PantherHacks Editor
-		</div>
+			<nav class="hidden items-center gap-1 md:flex">
+				{#each navItems as item}
+					<button
+						type="button"
+						class="rounded-full px-4 py-2 text-sm text-snip-text-secondary transition-colors hover:text-white"
+					>
+						{item}
+					</button>
+				{/each}
+			</nav>
 
-		<div
-			class="inline-flex items-center rounded-full border border-border/50 bg-background/80 px-3.5 py-1.5 text-[0.72rem] font-medium uppercase tracking-[0.24em] text-muted-foreground"
-		>
-			Processing-ready
-		</div>
-	</header>
+			<div class="w-10 md:hidden"></div>
+		</header>
 
-	<main class="relative z-10 mx-auto flex w-full max-w-6xl flex-1 items-center justify-center py-6">
-		<div class="relative flex w-full max-w-3xl items-center justify-center px-6 py-8 text-center sm:px-10 lg:px-14">
-			<div class="max-w-xl">
+		<main class="flex min-h-0 items-center justify-center">
+			<div class="flex w-full max-w-4xl flex-col items-center text-center">
 				<p class="mb-5 text-xs font-medium uppercase tracking-[0.28em] text-muted-foreground">
-					Transcript-aware cleanup
+					Audio + video upload
 				</p>
 
-				<h1
-					class="text-5xl leading-none font-semibold tracking-tight text-foreground sm:text-6xl md:text-7xl"
-				>
-					TITLE
+				<h1 class="max-w-4xl text-5xl leading-[0.94] font-semibold tracking-tight text-white sm:text-6xl lg:text-7xl">
+					Upload a clip.
 					<br />
-					HEADER
+					Get the timestamps.
+					<br />
+					Cut the awkward parts faster.
 				</h1>
 
-				<p class="mx-auto mt-6 max-w-md text-base leading-7 text-muted-foreground">
-					Find stutters, awkward phrasing, and bad takes from the transcript before you start
-					cutting.
+				<p class="mt-6 max-w-2xl text-lg leading-8 text-snip-text-secondary">
+					Snip reads the transcript, marks filler words, long pauses, and retakes, then
+					surfaces exact timestamps so you can jump straight into cleanup.
 				</p>
-			</div>
-		</div>
-	</main>
 
-	<div class="relative z-10 mx-auto w-full max-w-6xl pb-1">
+				<div class="mt-10 flex w-full max-w-2xl flex-col items-center">
+					<div
+						role="button"
+						tabindex="0"
+						aria-label="Upload audio or video"
+						class={`w-full rounded-[1.75rem] border border-dashed bg-snip-surface px-4 py-4 transition-all duration-200 ${
+							isDragging
+								? 'border-primary/70 shadow-[0_0_0_1px_rgba(124,58,237,0.25)]'
+								: isActivating
+									? 'cursor-progress border-primary/60'
+									: 'cursor-pointer border-snip-border hover:border-white/25'
+						}`}
+						onclick={handleUploadClick}
+						onkeydown={(event) => event.key === 'Enter' || event.key === ' ' ? handleUploadClick() : null}
+						ondragenter={handleDragEnter}
+						ondragover={handleDragOver}
+						ondragleave={handleDragLeave}
+						ondrop={handleDroppedFiles}
+					>
+						<Button
+							size="lg"
+							class={`h-14 w-full rounded-[1.2rem] border bg-snip-surface-elevated px-6 text-base font-semibold text-white transition-all duration-200 ${
+								isDragging
+									? 'border-primary/70'
+									: isActivating
+										? 'cursor-progress border-primary/60'
+										: 'border-snip-border hover:border-white/25'
+							}`}
+						>
+							<span class="flex items-center gap-3">
+								<span class="grid size-7 place-items-center rounded-full border border-white/10 bg-snip-surface text-snip-text-secondary">
+									<UploadIcon class="size-4" />
+								</span>
+								{isActivating ? 'Preparing upload...' : 'Upload media'}
+							</span>
+						</Button>
+					</div>
+
+					<p class="mt-4 text-sm text-snip-text-secondary">
+						Drag and drop audio or video, or click to upload
+					</p>
+				</div>
+			</div>
+		</main>
+
 		<Input
 			bind:ref={inputRef}
 			type="file"
-			accept="video/*"
+			accept="video/*,audio/*"
 			class="hidden"
 			onchange={(event) => handleFileSelection((event.currentTarget as HTMLInputElement).files)}
 		/>
-
-		<Button
-			size="lg"
-			onclick={handleAddVideosClick}
-			class={`group relative h-16 w-full overflow-hidden rounded-[1.45rem] border border-primary/20 text-base font-semibold text-primary-foreground shadow-lg transition-all duration-300 ${
-				isActivating
-					? 'scale-[0.995] cursor-progress bg-primary/95 shadow-[0_18px_50px_color-mix(in_oklab,var(--color-primary)_35%,transparent)]'
-					: 'cursor-pointer bg-primary shadow-[0_12px_38px_color-mix(in_oklab,var(--color-primary)_28%,transparent)] hover:-translate-y-0.5 hover:bg-primary/92 hover:shadow-[0_18px_50px_color-mix(in_oklab,var(--color-primary)_35%,transparent)]'
-			}`}
-		>
-			<span class="pointer-events-none absolute inset-0 bg-gradient-to-r from-primary via-accent to-primary opacity-100"></span>
-			<span class="pointer-events-none absolute inset-0 opacity-0 transition-opacity duration-300 group-hover:opacity-100 bg-[radial-gradient(circle_at_center,rgba(255,255,255,0.18),transparent_55%)]"></span>
-			<span class="pointer-events-none absolute inset-x-6 top-0 h-px bg-white/45"></span>
-			<span class="relative z-[1] flex items-center justify-center gap-3">
-				<span class="grid h-7 w-7 place-items-center rounded-full bg-primary-foreground/15 text-lg leading-none transition-transform duration-300 group-hover:scale-110">
-					+
-				</span>
-				<span>{isActivating ? 'Preparing upload...' : 'Add Videos'}</span>
-			</span>
-		</Button>
 	</div>
 </div>
