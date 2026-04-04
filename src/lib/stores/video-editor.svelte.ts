@@ -144,18 +144,47 @@ function clipStripLabel(segment: AutocutAnalysisSegment): string {
 	return `${text.slice(0, CLIP_STRIP_LABEL_LIMIT - 1)}…`;
 }
 
-function buildPlaybackSegments(segments: AutocutAnalysisSegment[]): AutocutAnalysisSegment[] {
+function gapContainsCutContent(
+	gapStart: number,
+	gapEnd: number,
+	allSegments: AutocutAnalysisSegment[]
+): boolean {
+	for (const seg of allSegments) {
+		if (seg.start >= gapEnd) break;
+		if (seg.end <= gapStart) continue;
+
+		if (seg.category === "filler_words" || seg.category === "retake") {
+			return true;
+		}
+	}
+
+	return false;
+}
+
+function buildPlaybackSegments(
+	segments: AutocutAnalysisSegment[],
+	deadSpaceThresholdMs: number,
+	allSegments: AutocutAnalysisSegment[]
+): AutocutAnalysisSegment[] {
 	const merged: AutocutAnalysisSegment[] = [];
 
 	for (const segment of segments) {
 		if (segment.category !== "good") continue;
 
 		const last = merged[merged.length - 1];
-		if (last && segment.start <= last.end + PREVIEW_EPSILON_MS) {
-			last.end = Math.max(last.end, segment.end);
-			last.text = [last.text, segment.text].filter(Boolean).join(" ").trim();
-			last.takeId = last.takeId === segment.takeId ? last.takeId : null;
-			continue;
+		if (last) {
+			const gapMs = segment.start - last.end;
+
+			// Only merge segments that move forward in video time (gap >= 0).
+			// A negative gap means we're jumping backward to a different take/
+			// variant — those must stay as separate playback segments so the
+			// player seeks to the correct position.
+			if (gapMs >= 0 && gapMs <= deadSpaceThresholdMs && !gapContainsCutContent(last.end, segment.start, allSegments)) {
+				last.end = Math.max(last.end, segment.end);
+				last.text = [last.text, segment.text].filter(Boolean).join(" ").trim();
+				last.takeId = last.takeId === segment.takeId ? last.takeId : null;
+				continue;
+			}
 		}
 
 		merged.push({ ...segment });
@@ -876,7 +905,7 @@ class VideoEditorState {
 			}
 		}
 
-		return buildPlaybackSegments(playbackSegments);
+		return buildPlaybackSegments(playbackSegments, this.deadSpaceThreshold, this.analysisSegments);
 	}
 
 	get selectedCutCount(): number {
@@ -1540,9 +1569,23 @@ class VideoEditorState {
 		console.log(`[preview]   seeked to ${(this.videoElement.currentTime * 1000).toFixed(1)}ms (target ${segment.start}ms)`);
 
 		// Use requestAnimationFrame (~16ms) instead of timeupdate (~250ms) for tight cuts
+		let hasEnteredRange = false;
 		const pollEnd = () => {
 			if (!this.videoElement) return;
 			const nowMs = this.videoElement.currentTime * 1000;
+
+			// Track whether we've actually entered the segment's time range.
+			// This prevents a false "end" trigger when a backward seek hasn't
+			// fully settled and currentTime is still beyond segment.end.
+			if (!hasEnteredRange) {
+				if (nowMs >= segment.start - PREVIEW_EPSILON_MS && nowMs < segment.end + PREVIEW_EPSILON_MS) {
+					hasEnteredRange = true;
+				} else {
+					// Not in range yet — keep polling
+					this.previewRafId = requestAnimationFrame(pollEnd);
+					return;
+				}
+			}
 
 			if (nowMs >= segment.end) {
 				console.log(`[preview]   hit end at ${nowMs.toFixed(1)}ms (overshot ${(nowMs - segment.end).toFixed(1)}ms)`);
