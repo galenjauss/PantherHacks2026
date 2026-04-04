@@ -1,4 +1,12 @@
-<h1>lets gooo!t</h1>
+<script>
+    import { Button } from "$lib/components/ui/button";
+</script>
+
+<h1>
+    lets gooo!t
+
+    <Button>Click me</Button>
+</h1>
 <p>
     Visit <a href="https://svelte.dev/docs/kit">svelte.dev/docs/kit</a> to read the
     documentation
