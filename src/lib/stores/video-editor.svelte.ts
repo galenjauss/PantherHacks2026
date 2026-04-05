@@ -1816,10 +1816,20 @@ class VideoEditorState {
 		this.currentTimeMs = Math.max(Math.round(currentTimeSeconds * 1000), 0);
 	}
 
-	seekTo(timeMs: number) {
+	async seekTo(timeMs: number) {
 		if (!this.videoElement) return;
-		this.videoElement.currentTime = timeMs / 1000;
-		this.currentTimeMs = Math.max(Math.round(timeMs), 0);
+
+		const targetTimeMs = Math.max(Math.round(timeMs), 0);
+
+		// Manual seeks during segmented preview leave the previous RAF loop
+		// targeting stale segment bounds. Stop that preview first so the
+		// next play starts cleanly from the new position.
+		if (this.previewMode === "after" && this.isPreviewPlaying) {
+			this.stopPreview();
+		}
+
+		await this.seekVideoElementTo(this.videoElement, targetTimeMs);
+		this.currentTimeMs = targetTimeMs;
 	}
 
 	handleBeforePlaybackEnded() {
@@ -1867,14 +1877,11 @@ class VideoEditorState {
 
 		if (segments.length === 0) return;
 
-		const resumeSegmentIndex = segments.findIndex((segment) =>
-			this.currentTimeMs >= segment.start && this.currentTimeMs < segment.end
-		);
-		const startSegmentIndex = resumeSegmentIndex >= 0 ? resumeSegmentIndex : 0;
-		const startTimeMs =
-			resumeSegmentIndex >= 0
-				? clamp(this.currentTimeMs, segments[startSegmentIndex].start, segments[startSegmentIndex].end)
-				: segments[0].start;
+		const startSegmentIndex = segments.findIndex((segment) => this.currentTimeMs < segment.end);
+		if (startSegmentIndex < 0) return;
+
+		const startSegment = segments[startSegmentIndex];
+		const startTimeMs = clamp(this.currentTimeMs, startSegment.start, startSegment.end);
 
 		this.isPreviewPlaying = true;
 		this.currentPreviewSegmentIndex = startSegmentIndex;
