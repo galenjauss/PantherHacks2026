@@ -117,6 +117,11 @@
 				<div
 					class="absolute left-[-6%] top-[47%] h-px w-87 -rotate-12 border-t-2 border-dashed border-primary/55 opacity-80"
 				></div>
+				<p
+					class="font-display absolute left-[7%] top-[41%] -rotate-12 text-5xl font-semibold tracking-tight text-black/70"
+				>
+					um...
+				</p>
 				<div class="absolute left-[20%] top-[33%] rotate-155">
 					<div class="relative">
 						<div

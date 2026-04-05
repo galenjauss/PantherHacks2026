@@ -1,0 +1,132 @@
+<!doctype html>
+<html lang="en">
+	<head>
+		<meta charset="UTF-8" />
+		<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+		<title>Font Preview</title>
+		<style>
+			:root {
+				color-scheme: dark;
+			}
+
+			* {
+				box-sizing: border-box;
+			}
+
+			body {
+				margin: 0;
+				padding: 32px;
+				background: #0a0a0a;
+				color: #f5f5f5;
+				font-family: Arial, Helvetica, sans-serif;
+			}
+
+			h1 {
+				margin: 0 0 12px;
+				font-size: 2rem;
+			}
+
+			p {
+				margin: 0 0 24px;
+				color: #a1a1aa;
+			}
+
+			.grid {
+				display: grid;
+				gap: 16px;
+			}
+
+			.card {
+				border: 1px solid #27272a;
+				border-radius: 18px;
+				padding: 20px 22px;
+				background: #111111;
+			}
+
+			.label {
+				margin-bottom: 10px;
+				font-size: 0.875rem;
+				color: #a855f7;
+				letter-spacing: 0.08em;
+				text-transform: uppercase;
+				font-family: Arial, Helvetica, sans-serif;
+			}
+
+			.sample {
+				font-size: 2rem;
+				line-height: 1.15;
+			}
+		</style>
+	</head>
+	<body>
+		<h1>Font Preview</h1>
+		<p>Each sample below is rendered in its own font family.</p>
+
+		<div class="grid">
+			<div class="card">
+				<div class="label">Montserrat</div>
+				<div class="sample" style='font-family: "Montserrat", sans-serif;'>Montserrat</div>
+			</div>
+
+			<div class="card">
+				<div class="label">Anton</div>
+				<div class="sample" style='font-family: "Anton", sans-serif;'>Anton</div>
+			</div>
+
+			<div class="card">
+				<div class="label">Poppins</div>
+				<div class="sample" style='font-family: "Poppins", sans-serif;'>Poppins</div>
+			</div>
+
+			<div class="card">
+				<div class="label">Arial</div>
+				<div class="sample" style='font-family: "Arial", sans-serif;'>Arial</div>
+			</div>
+
+			<div class="card">
+				<div class="label">Helvetica</div>
+				<div class="sample" style='font-family: "Helvetica", sans-serif;'>Helvetica</div>
+			</div>
+
+			<div class="card">
+				<div class="label">Verdana</div>
+				<div class="sample" style='font-family: "Verdana", sans-serif;'>Verdana</div>
+			</div>
+
+			<div class="card">
+				<div class="label">Georgia</div>
+				<div class="sample" style='font-family: "Georgia", serif;'>Georgia</div>
+			</div>
+
+			<div class="card">
+				<div class="label">Times New Roman</div>
+				<div class="sample" style='font-family: "Times New Roman", serif;'>Times New Roman</div>
+			</div>
+
+			<div class="card">
+				<div class="label">Courier New</div>
+				<div class="sample" style='font-family: "Courier New", monospace;'>Courier New</div>
+			</div>
+
+			<div class="card">
+				<div class="label">Impact</div>
+				<div class="sample" style='font-family: "Impact", sans-serif;'>Impact</div>
+			</div>
+
+			<div class="card">
+				<div class="label">Comic Sans MS</div>
+				<div class="sample" style='font-family: "Comic Sans MS", cursive;'>Comic Sans MS</div>
+			</div>
+
+			<div class="card">
+				<div class="label">Trebuchet MS</div>
+				<div class="sample" style='font-family: "Trebuchet MS", sans-serif;'>Trebuchet MS</div>
+			</div>
+
+			<div class="card">
+				<div class="label">Lucida Console</div>
+				<div class="sample" style='font-family: "Lucida Console", monospace;'>Lucida Console</div>
+			</div>
+		</div>
+	</body>
+</html>
