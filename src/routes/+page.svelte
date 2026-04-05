@@ -147,11 +147,10 @@
 				</p>
 
 				<h1
-					class="font-display max-w-4xl text-5xl leading-[0.94] font-semibold tracking-tight text-white sm:text-6xl lg:text-7xl"
+					class="font-display max-w-4xl text-5xl leading-[1.26] font-semibold tracking-tight text-white sm:text-6xl lg:text-7xl"
 				>
-					Snip a clip
-					<br />
-					into perfection
+					<span class="block">Snip a clip</span>
+					<span class="block">into perfection</span>
 				</h1>
 
 				<p
