@@ -11,7 +11,7 @@ type ChunkLabelInput = Pick<
 	"index" | "lineId" | "slotId" | "variantId" | "status"
 >;
 
-export const DEFAULT_INTERNAL_PAUSE_FLOOR_MS = 300;
+export const DEFAULT_INTERNAL_PAUSE_FLOOR_MS = 150;
 
 function uniqueStrings(values: Array<string | null | undefined>): string[] {
 	const seen = new Set<string>();
@@ -105,7 +105,8 @@ export function buildSpeechChunks(
 			continue;
 		}
 
-		if (gapMs >= notablePauseFloorMs && gapMs <= minimumPauseLengthMs) {
+		const internalPauseLowMs = Math.min(notablePauseFloorMs, minimumPauseLengthMs);
+		if (gapMs >= internalPauseLowMs && gapMs <= minimumPauseLengthMs) {
 			internalPauses.push({
 				afterWordIndex: index,
 				durationMs: gapMs

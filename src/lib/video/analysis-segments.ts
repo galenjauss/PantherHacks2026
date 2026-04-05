@@ -13,8 +13,8 @@ export interface AnalysisSegmentOptions {
 }
 
 export const DEFAULT_ANALYSIS_SEGMENT_OPTIONS: AnalysisSegmentOptions = {
-	deadSpaceThresholdMs: 700,
-	clipEndTrimMs: 225
+	deadSpaceThresholdMs: 200,
+	clipEndTrimMs: 50
 };
 
 export function normalizeMs(
