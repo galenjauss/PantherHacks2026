@@ -36,6 +36,37 @@
 		wasBusy = busy;
 	});
 
+	// Count-up animation state — seeded at 0 then released to real values
+	// when the dialog opens, so the reveal feels earned rather than instantaneous.
+	let heroSavedMs = $state(0);
+	let afterDurationMs = $state(0);
+	let statCounts = $state<Record<string, number>>({});
+	let countCuts = $state(0);
+	let countWords = $state(0);
+	$effect(() => {
+		if (showStatsDialog) {
+			heroSavedMs = 0;
+			afterDurationMs = editor.totalDurationMs;
+			statCounts = {};
+			countCuts = 0;
+			countWords = 0;
+			const targetSaved = editor.selectedCutDurationMs;
+			const targetAfter = editor.cleanDurationMs;
+			const targetStats = Object.fromEntries(
+				editor.analysisStats.map((row) => [row.category, row.count])
+			);
+			const targetCuts = editor.selectedCutCount;
+			const targetWords = editor.transcriptPanelWords.length;
+			requestAnimationFrame(() => {
+				heroSavedMs = targetSaved;
+				afterDurationMs = targetAfter;
+				statCounts = targetStats;
+				countCuts = targetCuts;
+				countWords = targetWords;
+			});
+		}
+	});
+
 	$effect(() => {
 		const n = editor.transcriptPanelWords.length;
 		if (n === 0) {
@@ -489,87 +520,239 @@
 </div>
 
 <Dialog.Root bind:open={showStatsDialog}>
+	{@const savedPct =
+		editor.totalDurationMs > 0
+			? Math.round(
+					(editor.selectedCutDurationMs / editor.totalDurationMs) * 100,
+				)
+			: 0}
 	<Dialog.Content
-		class="gap-0 overflow-hidden border-snip-border bg-snip-surface p-0 sm:max-w-sm"
+		class="glow-border gap-0 overflow-hidden border-snip-border bg-snip-surface p-0 sm:max-w-md"
 	>
+		<!-- Hero: the anchor moment. Time saved is the one number that matters. -->
 		<div
-			class="flex flex-col items-center gap-1 bg-gradient-to-b from-primary/15 to-transparent px-6 pt-7 pb-5"
+			class="flex flex-col items-center gap-2 px-6 pt-8 pb-7"
 		>
-			<ScissorsIcon class="mb-1 size-6 text-primary" />
-			<Dialog.Title class="font-display text-lg font-bold text-white"
-				>Analysis Complete</Dialog.Title
+			<span
+				class="text-[10px] font-semibold uppercase tracking-[0.18em] text-snip-text-muted"
+				>Analysis Complete</span
 			>
+			<Dialog.Title class="sr-only">Analysis Complete</Dialog.Title>
+			<div
+				class="font-display text-5xl font-extrabold tabular-nums leading-none text-primary"
+			>
+				<AnimatedNumber
+					value={heroSavedMs}
+					duration={900}
+					format={(n) => editor.formatDuration(Math.max(0, Math.round(n)))}
+				/>
+			</div>
 			<Dialog.Description class="text-[13px] text-snip-text-secondary">
-				Here's what Snip AI found.
+				saved from your <span
+					class="font-medium text-snip-text-primary tabular-nums"
+					>{editor.formatClock(editor.totalDurationMs)}</span
+				> clip
 			</Dialog.Description>
 		</div>
 
-		{@const savedPct =
-			editor.totalDurationMs > 0
-				? Math.round(
-						(editor.selectedCutDurationMs /
-							editor.totalDurationMs) *
-							100,
-					)
-				: 0}
-		<div class="grid grid-cols-2 gap-px bg-snip-border/50">
-			<div class="flex flex-col gap-0.5 bg-snip-surface px-5 py-4">
-				<span
-					class="text-[10px] font-medium uppercase tracking-wider text-snip-text-muted"
-					>Saved</span
-				>
-				<span
-					class="font-display text-xl font-extrabold tabular-nums text-primary"
-					>{editor.formatDuration(editor.selectedCutDurationMs)}</span
-				>
+		<!-- Per-metric before → after comparison table -->
+		{@const removedRows = editor.analysisStats.filter((row) => row.count > 0)}
+		<div class="border-t border-snip-border/50 bg-snip-surface">
+			<!-- Column headers -->
+			<div
+				class="grid grid-cols-[1fr_auto_auto_auto] items-center gap-4 px-6 pt-4 pb-2 text-[10px] font-semibold uppercase tracking-[0.18em] text-snip-text-muted"
+			>
+				<span></span>
+				<span class="w-14 text-right">Before</span>
+				<span class="w-4 text-center opacity-50">→</span>
+				<span class="w-14 text-left text-primary/80">After</span>
 			</div>
-			<div class="flex flex-col gap-0.5 bg-snip-surface px-5 py-4">
+
+			<!-- Duration row (featured) -->
+			<div
+				class="grid grid-cols-[1fr_auto_auto_auto] items-center gap-4 px-6 py-3"
+			>
+				<div class="flex items-center gap-2">
+					<span class="text-xl font-semibold text-snip-text-primary"
+						>Duration</span
+					>
+					<span
+						class="self-center rounded-full bg-primary/15 px-1.5 py-0.5 text-[9px] font-semibold tracking-wide text-primary ring-1 ring-primary/25"
+						>−{savedPct}%</span
+					>
+				</div>
 				<span
-					class="text-[10px] font-medium uppercase tracking-wider text-snip-text-muted"
-					>Shorter</span
+					class="font-display w-14 text-right text-xl font-bold tabular-nums text-snip-text-secondary"
+					>{editor.formatClock(editor.totalDurationMs)}</span
+				>
+				<span class="w-4 text-center text-[13px] text-snip-text-muted"
+					>→</span
 				>
 				<span
-					class="font-display text-xl font-extrabold tabular-nums text-white"
-					>{savedPct}%</span
+					class="font-display w-14 text-left text-xl font-bold tabular-nums text-primary"
 				>
+					<AnimatedNumber
+						value={afterDurationMs}
+						duration={900}
+						format={(n) => editor.formatClock(Math.max(0, Math.round(n)))}
+					/>
+				</span>
 			</div>
-			<div class="flex flex-col gap-0.5 bg-snip-surface px-5 py-4">
-				<span
-					class="text-[10px] font-medium uppercase tracking-wider text-snip-text-muted"
-					>Cuts</span
-				>
-				<span
-					class="font-display text-xl font-extrabold tabular-nums text-white"
-					>{editor.selectedCutCount}</span
-				>
-			</div>
-			<div class="flex flex-col gap-0.5 bg-snip-surface px-5 py-4">
-				<span
-					class="text-[10px] font-medium uppercase tracking-wider text-snip-text-muted"
-					>Final</span
-				>
-				<span
-					class="font-display text-xl font-extrabold tabular-nums text-white"
-					>{editor.formatClock(editor.cleanDurationMs)}</span
-				>
+
+			<!-- Removed-category rows -->
+			{#if removedRows.length > 0}
+				<div class="mx-6 border-t border-snip-border/40"></div>
+				{#each removedRows as row (row.category)}
+					<div
+						class="grid grid-cols-[1fr_auto_auto_auto] items-center gap-4 px-6 py-2.5"
+					>
+						<div class="flex items-center gap-2.5">
+							<span
+								class="size-2 shrink-0 rounded-full"
+								style="background-color: {row.color};"
+							></span>
+							<div class="flex flex-col gap-0.5">
+								<span
+									class="text-[13px] font-medium text-snip-text-primary"
+									>{row.label}</span
+								>
+								<span class="text-[10px] tabular-nums text-snip-text-muted"
+									>{editor.formatDuration(row.durationMs)} reclaimed</span
+								>
+							</div>
+						</div>
+						<span
+							class="font-display w-14 text-right text-lg font-bold tabular-nums leading-none text-snip-text-secondary"
+						>
+							<AnimatedNumber
+								value={statCounts[row.category] ?? 0}
+								duration={700}
+								format={(n) => Math.round(n).toString()}
+							/>
+						</span>
+						<span class="w-4 text-center text-[13px] text-snip-text-muted"
+							>→</span
+						>
+						<span
+							class="font-display flex w-14 items-center gap-1.5 text-lg font-bold tabular-nums leading-none text-primary"
+						>
+							<span>0</span>
+							<svg
+								class="size-3.5"
+								viewBox="0 0 24 24"
+								fill="none"
+								stroke="currentColor"
+								stroke-width="3"
+								stroke-linecap="round"
+								stroke-linejoin="round"
+								aria-hidden="true"
+							>
+								<polyline points="20 6 9 17 4 12"></polyline>
+							</svg>
+						</span>
+					</div>
+				{/each}
+			{/if}
+
+			<!-- Delivered rows -->
+			<div class="mx-6 border-t border-snip-border/40"></div>
+			<div class="flex flex-col px-6 pt-2.5 pb-4">
+				<div class="flex items-center justify-between py-1.5">
+					<span class="text-[13px] font-medium text-snip-text-primary"
+						>Cuts made</span
+					>
+					<span
+						class="font-display text-lg font-bold tabular-nums leading-none text-snip-text-primary"
+					>
+						<AnimatedNumber
+							value={countCuts}
+							duration={700}
+							format={(n) => Math.round(n).toString()}
+						/>
+					</span>
+				</div>
+				<div class="flex items-center justify-between py-1.5">
+					<span class="text-[13px] font-medium text-snip-text-primary"
+						>Words captioned</span
+					>
+					<span
+						class="font-display text-lg font-bold tabular-nums leading-none text-snip-text-primary"
+					>
+						<AnimatedNumber
+							value={countWords}
+							duration={700}
+							format={(n) => Math.round(n).toLocaleString()}
+						/>
+					</span>
+				</div>
 			</div>
 		</div>
 
+		<!-- Footer: primary CTA only -->
 		<div
-			class="flex items-center justify-between border-t border-snip-border/50 bg-snip-surface px-5 py-3"
+			class="flex items-center justify-end gap-3 border-t border-snip-border/50 bg-snip-surface px-5 py-3"
 		>
-			<span class="text-[11px] text-snip-text-muted">
-				Original: <span class="font-medium text-snip-text-secondary"
-					>{editor.formatClock(editor.totalDurationMs)}</span
-				>
-			</span>
 			<Button
 				size="sm"
 				onclick={() => (showStatsDialog = false)}
 				class="font-display px-5"
 			>
-				Let's Edit
+				Let's Go →
 			</Button>
 		</div>
 	</Dialog.Content>
 </Dialog.Root>
+
+<style>
+	@property --glow-angle {
+		syntax: "<angle>";
+		initial-value: 0deg;
+		inherits: false;
+	}
+
+	:global(.glow-border) {
+		isolation: isolate;
+	}
+
+	:global(.glow-border::before) {
+		content: "";
+		position: absolute;
+		inset: 0;
+		border-radius: inherit;
+		padding: 1.5px;
+		background: conic-gradient(
+			from var(--glow-angle),
+			transparent 0%,
+			transparent 65%,
+			oklch(72% 0.22 295 / 0.35) 78%,
+			oklch(78% 0.26 295) 88%,
+			oklch(90% 0.18 295) 92%,
+			oklch(78% 0.26 295) 96%,
+			transparent 100%
+		);
+		-webkit-mask:
+			linear-gradient(#000 0 0) content-box,
+			linear-gradient(#000 0 0);
+		-webkit-mask-composite: xor;
+		mask:
+			linear-gradient(#000 0 0) content-box,
+			linear-gradient(#000 0 0);
+		mask-composite: exclude;
+		animation: glow-spin 3.5s linear infinite;
+		pointer-events: none;
+		z-index: 1;
+		filter: drop-shadow(0 0 6px oklch(72% 0.22 295 / 0.55));
+	}
+
+	@keyframes glow-spin {
+		to {
+			--glow-angle: 360deg;
+		}
+	}
+
+	@media (prefers-reduced-motion: reduce) {
+		:global(.glow-border::before) {
+			animation: none;
+		}
+	}
+</style>

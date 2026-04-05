@@ -1,4 +1,5 @@
 import { browser } from "$app/environment";
+import { upload } from "@vercel/blob/client";
 
 import type {
 	AutocutAnalysisSegment,
@@ -2413,12 +2414,19 @@ class VideoEditorState {
 		this.lastBeatSelectionSignature = "";
 
 		try {
-			const formData = new FormData();
-			formData.append("file", this.selectedFile);
+			const file = this.selectedFile;
+			const blob = await upload(file.name, file, {
+				access: "public",
+				handleUploadUrl: "/api/video/blob-upload",
+				contentType: file.type || "video/mp4"
+			});
+
+			if (runId !== this.currentRun) return;
 
 			const res = await fetch("/api/video/transcribe", {
 				method: "POST",
-				body: formData
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({ audioUrl: blob.url, filename: file.name })
 			});
 
 			const data = (await res.json()) as { transcript_id?: string; status?: string; error?: string };

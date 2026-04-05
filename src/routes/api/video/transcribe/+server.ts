@@ -4,43 +4,40 @@ import type { RequestHandler } from "./$types";
 
 const ASSEMBLYAI_BASE = "https://api.assemblyai.com/v2";
 
+const ALLOWED_AUDIO_HOSTS = [
+	".public.blob.vercel-storage.com",
+	".blob.vercel-storage.com"
+];
+
+function isAllowedAudioUrl(raw: unknown): raw is string {
+	if (typeof raw !== "string" || raw.length === 0) return false;
+	try {
+		const url = new URL(raw);
+		if (url.protocol !== "https:") return false;
+		return ALLOWED_AUDIO_HOSTS.some((suffix) => url.hostname.endsWith(suffix));
+	} catch {
+		return false;
+	}
+}
+
 export const POST: RequestHandler = async ({ request }) => {
-	const contentType = request.headers.get("content-type") ?? "";
-
-	if (!contentType.includes("multipart/form-data")) {
-		return json({ error: "Expected multipart/form-data" }, { status: 400 });
+	let payload: { audioUrl?: unknown };
+	try {
+		payload = (await request.json()) as { audioUrl?: unknown };
+	} catch {
+		return json({ error: "Expected JSON body" }, { status: 400 });
 	}
 
-	const formData = await request.formData();
-	const file = formData.get("file");
+	const { audioUrl } = payload;
 
-	if (!(file instanceof File)) {
-		return json({ error: "No file provided" }, { status: 400 });
-	}
-
-	// 1. Upload file to AssemblyAI
-	const fileBuffer = await file.arrayBuffer();
-
-	const uploadRes = await fetch(`${ASSEMBLYAI_BASE}/upload`, {
-		method: "POST",
-		headers: {
-			Authorization: ASSEMBLYAI_API_KEY,
-			"Content-Type": "application/octet-stream"
-		},
-		body: fileBuffer
-	});
-
-	if (!uploadRes.ok) {
-		const err = await uploadRes.json().catch(() => ({}));
+	if (!isAllowedAudioUrl(audioUrl)) {
 		return json(
-			{ error: "Failed to upload to AssemblyAI", details: err },
-			{ status: 502 }
+			{ error: "audioUrl must be an https URL on a Vercel Blob host" },
+			{ status: 400 }
 		);
 	}
 
-	const { upload_url } = await uploadRes.json();
-
-	// 2. Submit transcription request
+	// Submit transcription request directly — AssemblyAI will fetch the audio by URL.
 	const transcriptRes = await fetch(`${ASSEMBLYAI_BASE}/transcript`, {
 		method: "POST",
 		headers: {
@@ -48,7 +45,7 @@ export const POST: RequestHandler = async ({ request }) => {
 			"Content-Type": "application/json"
 		},
 		body: JSON.stringify({
-			audio_url: upload_url,
+			audio_url: audioUrl,
 			speech_models: ["universal-3-pro"]
 		})
 	});
@@ -63,8 +60,11 @@ export const POST: RequestHandler = async ({ request }) => {
 
 	const transcript = await transcriptRes.json();
 
-	return json({
-		transcript_id: transcript.id,
-		status: transcript.status
-	}, { status: 201 });
+	return json(
+		{
+			transcript_id: transcript.id,
+			status: transcript.status
+		},
+		{ status: 201 }
+	);
 };
