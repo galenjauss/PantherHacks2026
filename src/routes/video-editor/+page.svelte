@@ -23,6 +23,13 @@
 	let wasBusy = $state(false);
 	let prevTranscriptWordCount = $state(0);
 
+	// Clean up any pending Vercel Blob when the user closes / navigates away.
+	$effect(() => {
+		const handler = () => editor.cleanupBlobOnUnload();
+		window.addEventListener("beforeunload", handler);
+		return () => window.removeEventListener("beforeunload", handler);
+	});
+
 	$effect(() => {
 		const busy = editor.isBusy;
 		if (busy) {

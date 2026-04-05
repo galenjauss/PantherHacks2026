@@ -306,6 +306,7 @@ function parseContentDispositionFileName(header: string | null): string | null {
 
 class VideoEditorState {
 	selectedFile = $state<File | null>(null);
+	pendingBlobUrl = $state<string | null>(null);
 	videoUrl = $state<string | null>(null);
 	videoDurationMs = $state<number | null>(null);
 	videoWidthPx = $state<number | null>(null);
@@ -1986,6 +1987,7 @@ class VideoEditorState {
 			URL.revokeObjectURL(this.videoUrl);
 		}
 
+		this.deletePendingBlob();
 		this.selectedFile = file;
 		this.videoUrl = file ? URL.createObjectURL(file) : null;
 		this.videoDurationMs = null;
@@ -2433,7 +2435,12 @@ class VideoEditorState {
 					contentType: file.type || "video/mp4"
 				});
 
-				if (runId !== this.currentRun) return;
+				this.pendingBlobUrl = blob.url;
+
+				if (runId !== this.currentRun) {
+					this.deletePendingBlob();
+					return;
+				}
 
 				res = await fetch("/api/video/transcribe", {
 					method: "POST",
@@ -2444,9 +2451,13 @@ class VideoEditorState {
 
 			const data = (await res.json()) as { transcript_id?: string; status?: string; error?: string };
 
-			if (runId !== this.currentRun) return;
+			if (runId !== this.currentRun) {
+				this.deletePendingBlob();
+				return;
+			}
 
 			if (!res.ok || !data.transcript_id) {
+				this.deletePendingBlob();
 				this.transcriptError = data.error ?? "Failed to start transcription.";
 				return;
 			}
@@ -2457,6 +2468,7 @@ class VideoEditorState {
 			await this.pollTranscript(runId, data.transcript_id);
 		} catch (error) {
 			if (runId !== this.currentRun) return;
+			this.deletePendingBlob();
 			this.transcriptError = error instanceof Error ? error.message : "Transcription request failed.";
 		} finally {
 			if (runId === this.currentRun) {
@@ -2505,6 +2517,32 @@ class VideoEditorState {
 		}
 	}
 
+	private deletePendingBlob(useBeacon = false) {
+		const url = this.pendingBlobUrl;
+		if (!url) return;
+		this.pendingBlobUrl = null;
+
+		const body = JSON.stringify({ url });
+
+		if (useBeacon && typeof navigator !== "undefined" && navigator.sendBeacon) {
+			navigator.sendBeacon(
+				"/api/video/blob-delete",
+				new Blob([body], { type: "application/json" })
+			);
+			return;
+		}
+
+		fetch("/api/video/blob-delete", {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body
+		}).catch(() => {});
+	}
+
+	cleanupBlobOnUnload() {
+		this.deletePendingBlob(true);
+	}
+
 	private async pollTranscript(runId: number, transcriptId: string) {
 		if (!transcriptId || runId !== this.currentRun) return;
 
@@ -2518,6 +2556,7 @@ class VideoEditorState {
 				if (runId !== this.currentRun) return;
 
 				if (!res.ok) {
+					this.deletePendingBlob();
 					this.transcriptError = data.error ?? `Failed to fetch transcript (${res.status}).`;
 					return;
 				}
@@ -2525,6 +2564,7 @@ class VideoEditorState {
 				this.transcriptStatus = data.status ?? "";
 
 				if (data.status === "completed") {
+					this.deletePendingBlob();
 					this.transcriptText = data.text ?? "";
 					this.transcriptWords = Array.isArray(data.words) ? data.words : [];
 
@@ -2539,6 +2579,7 @@ class VideoEditorState {
 				}
 
 				if (data.status === "error") {
+					this.deletePendingBlob();
 					this.transcriptError = data.error ?? "Transcription failed.";
 					return;
 				}
@@ -2547,6 +2588,7 @@ class VideoEditorState {
 			}
 		} catch (error) {
 			if (runId !== this.currentRun) return;
+			this.deletePendingBlob();
 			this.transcriptError = error instanceof Error ? error.message : "Transcript polling failed.";
 		} finally {
 			if (runId === this.currentRun) {

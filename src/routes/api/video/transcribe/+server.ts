@@ -1,24 +1,9 @@
 import { json } from "@sveltejs/kit";
 import { ASSEMBLYAI_API_KEY } from "$env/static/private";
+import { isAllowedBlobUrl } from "$lib/server/blob-url";
 import type { RequestHandler } from "./$types";
 
 const ASSEMBLYAI_BASE = "https://api.assemblyai.com/v2";
-
-const ALLOWED_AUDIO_HOSTS = [
-	".public.blob.vercel-storage.com",
-	".blob.vercel-storage.com"
-];
-
-function isAllowedAudioUrl(raw: unknown): raw is string {
-	if (typeof raw !== "string" || raw.length === 0) return false;
-	try {
-		const url = new URL(raw);
-		if (url.protocol !== "https:") return false;
-		return ALLOWED_AUDIO_HOSTS.some((suffix) => url.hostname.endsWith(suffix));
-	} catch {
-		return false;
-	}
-}
 
 async function createTranscript(audioUrl: string) {
 	const transcriptRes = await fetch(`${ASSEMBLYAI_BASE}/transcript`, {
@@ -97,7 +82,7 @@ export const POST: RequestHandler = async ({ request }) => {
 
 	const { audioUrl } = payload;
 
-	if (!isAllowedAudioUrl(audioUrl)) {
+	if (!isAllowedBlobUrl(audioUrl)) {
 		return json(
 			{ error: "audioUrl must be an https URL on a Vercel Blob host" },
 			{ status: 400 }
