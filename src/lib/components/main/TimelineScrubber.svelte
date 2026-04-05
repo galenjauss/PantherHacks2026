@@ -4,7 +4,6 @@
 		endMs: number;
 		color: string;
 		beatId?: string;
-		previewText?: string;
 	}
 
 	interface Props {
@@ -72,37 +71,6 @@
 		isScrubbing = false;
 	}
 
-	// --- Region hover tooltip ---
-	let hoveredRegionIdx = $state<number | null>(null);
-	let regionHoverPct = $state(0);
-
-	let hoveredRegionText = $derived.by(() => {
-		if (hoveredRegionIdx === null) return "";
-		const text = beatRegions[hoveredRegionIdx]?.previewText ?? "";
-		return text.length > 200 ? text.slice(0, 197) + "..." : text;
-	});
-
-	function handleRegionEnter(idx: number, e: MouseEvent) {
-		if (isScrubbing) return;
-		hoveredRegionIdx = idx;
-		updateRegionHoverPct(e);
-	}
-
-	function handleRegionMove(e: MouseEvent) {
-		if (isScrubbing || hoveredRegionIdx === null) return;
-		updateRegionHoverPct(e);
-	}
-
-	function handleRegionLeave() {
-		hoveredRegionIdx = null;
-	}
-
-	function updateRegionHoverPct(e: MouseEvent) {
-		if (!trackEl) return;
-		const rect = trackEl.getBoundingClientRect();
-		regionHoverPct = Math.max(0, Math.min(100, ((e.clientX - rect.left) / rect.width) * 100));
-	}
-
 	// --- Keyboard seek ---
 	function handleKeyDown(e: KeyboardEvent) {
 		if (e.key === "ArrowRight") {
@@ -162,9 +130,6 @@
 					: `${region.color}60`};box-shadow:{isClipTreeHighlight
 					? `inset 0 0 0 2px rgba(255,255,255,0.35), 0 0 12px ${region.color}99`
 					: 'none'};filter:{isClipTreeHighlight ? 'brightness(1.15)' : 'none'};"
-				onmouseenter={(e) => handleRegionEnter(idx, e)}
-				onmousemove={handleRegionMove}
-				onmouseleave={handleRegionLeave}
 			></div>
 		{/each}
 
@@ -193,16 +158,6 @@
 				style="left:{progressPct}%;transform:translateX(-50%);"
 			>
 				{formatClock(currentTimeMs)}
-			</div>
-		{/if}
-
-		<!-- Region hover tooltip -->
-		{#if !isScrubbing && hoveredRegionText}
-			<div
-				class="pointer-events-none absolute -top-9 max-w-[220px] rounded-sm border border-snip-border bg-snip-surface px-2.5 py-1.5 text-[10px] leading-relaxed text-snip-text-secondary shadow-lg"
-				style="left:{regionHoverPct}%;transform:translateX(-50%);"
-			>
-				{hoveredRegionText}
 			</div>
 		{/if}
 	</div>

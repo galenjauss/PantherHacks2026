@@ -1,3 +1,4 @@
+import { read } from "$app/server";
 import { json } from "@sveltejs/kit";
 import type { RequestHandler } from "./$types";
 import {
@@ -8,9 +9,13 @@ import {
 	type VideoSubtitlePayload,
 	type VideoSubtitleStyle
 } from "$lib/video/subtitles";
+import antonRegularTtf from "$lib/assets/subtitle-fonts/Anton-Regular.ttf";
+import montserratVariableTtf from "$lib/assets/subtitle-fonts/Montserrat[wght].ttf";
+import poppinsBoldTtf from "$lib/assets/subtitle-fonts/Poppins-Bold.ttf";
+import poppinsRegularTtf from "$lib/assets/subtitle-fonts/Poppins-Regular.ttf";
 
 import { spawn } from "node:child_process";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { extname, join } from "node:path";
 
@@ -24,6 +29,36 @@ interface ProbeStream {
 	width?: number;
 	height?: number;
 }
+
+type SubtitleRenderFilter = "ass" | "subtitles";
+
+interface FfmpegCapabilities {
+	subtitleRenderFilter: SubtitleRenderFilter | null;
+}
+
+interface SubtitleRenderConfig {
+	filterName: SubtitleRenderFilter;
+	subtitlesPath: string;
+	fontsDir: string | null;
+}
+
+interface BundledSubtitleFontAsset {
+	asset: string;
+	fileName: string;
+}
+
+const SUBTITLE_RENDER_FILTERS: readonly SubtitleRenderFilter[] = ["ass", "subtitles"];
+const BUNDLED_SUBTITLE_FONT_ASSETS: readonly BundledSubtitleFontAsset[] = [
+	{ asset: montserratVariableTtf, fileName: "Montserrat[wght].ttf" },
+	{ asset: antonRegularTtf, fileName: "Anton-Regular.ttf" },
+	{ asset: poppinsRegularTtf, fileName: "Poppins-Regular.ttf" },
+	{ asset: poppinsBoldTtf, fileName: "Poppins-Bold.ttf" }
+];
+
+const FFMPEG_SUBTITLE_SUPPORT_ERROR =
+	'This Snip export server cannot burn subtitles because the installed ffmpeg build does not include libass subtitle rendering support (missing the "ass" / "subtitles" filter). Turn off "Show subtitles" to export without captions, or deploy an ffmpeg build with libass support.';
+
+let ffmpegCapabilitiesPromise: Promise<FfmpegCapabilities> | null = null;
 
 function isSegment(value: unknown): value is ExportSegment {
 	if (!value || typeof value !== "object") return false;
@@ -173,15 +208,21 @@ function serializeAss(payload: VideoSubtitlePayload, context: VideoSubtitleLayou
 	].join("\n");
 }
 
-function buildSubtitleFilter(subtitlesPath: string): string {
-	return `[basev]subtitles=filename='${filterPath(subtitlesPath)}'[outv]`;
+function buildSubtitleFilter({ filterName, subtitlesPath, fontsDir }: SubtitleRenderConfig): string {
+	const filterOptions = [`filename='${filterPath(subtitlesPath)}'`];
+
+	if (fontsDir) {
+		filterOptions.push(`fontsdir='${filterPath(fontsDir)}'`);
+	}
+
+	return `[basev]${filterName}=${filterOptions.join(":")}[outv]`;
 }
 
 function buildFilterComplex(
 	segments: ExportSegment[],
 	hasVideo: boolean,
 	hasAudio: boolean,
-	subtitlesPath: string | null
+	subtitleRenderConfig: SubtitleRenderConfig | null
 ): string {
 	const filterParts: string[] = [];
 	const concatInputs: string[] = [];
@@ -202,18 +243,24 @@ function buildFilterComplex(
 		}
 	}
 
-	const concatVideoOutput = hasVideo ? (subtitlesPath ? "[basev]" : "[outv]") : "";
+	const concatVideoOutput = hasVideo ? (subtitleRenderConfig ? "[basev]" : "[outv]") : "";
 	const concatOutputs = [concatVideoOutput, hasAudio ? "[outa]" : ""].join("");
 
 	filterParts.push(
 		`${concatInputs.join("")}concat=n=${segments.length}:v=${hasVideo ? 1 : 0}:a=${hasAudio ? 1 : 0}${concatOutputs}`
 	);
 
-	if (hasVideo && subtitlesPath) {
-		filterParts.push(buildSubtitleFilter(subtitlesPath));
+	if (hasVideo && subtitleRenderConfig) {
+		filterParts.push(buildSubtitleFilter(subtitleRenderConfig));
 	}
 
 	return filterParts.join(";");
+}
+
+function outputHasFilter(output: string, filterName: string): boolean {
+	return output
+		.split(/\r?\n/)
+		.some((line) => line.trim().split(/\s+/)[1] === filterName);
 }
 
 async function runCommand(command: string, args: string[]): Promise<{ stdout: string; stderr: string }> {
@@ -243,6 +290,38 @@ async function runCommand(command: string, args: string[]): Promise<{ stdout: st
 			reject(new Error(stderr.trim() || `${command} exited with code ${code}`));
 		});
 	});
+}
+
+async function getFfmpegCapabilities(): Promise<FfmpegCapabilities> {
+	if (!ffmpegCapabilitiesPromise) {
+		ffmpegCapabilitiesPromise = (async () => {
+			const { stdout, stderr } = await runCommand("ffmpeg", ["-hide_banner", "-filters"]);
+			const filterOutput = `${stdout}\n${stderr}`;
+
+			return {
+				subtitleRenderFilter:
+					SUBTITLE_RENDER_FILTERS.find((filterName) => outputHasFilter(filterOutput, filterName)) ?? null
+			};
+		})();
+	}
+
+	try {
+		return await ffmpegCapabilitiesPromise;
+	} catch (error) {
+		ffmpegCapabilitiesPromise = null;
+		throw error;
+	}
+}
+
+async function materializeBundledSubtitleFonts(fontsDir: string): Promise<void> {
+	await mkdir(fontsDir, { recursive: true });
+
+	await Promise.all(
+		BUNDLED_SUBTITLE_FONT_ASSETS.map(async ({ asset, fileName }) => {
+			const bundledFont = await read(asset);
+			await writeFile(join(fontsDir, fileName), Buffer.from(await bundledFont.arrayBuffer()));
+		})
+	);
 }
 
 function safeOutputName(fileName: string | null, fallbackName: string): string {
@@ -311,6 +390,7 @@ export const POST: RequestHandler = async ({ request }) => {
 	);
 	const outputPath = join(tempDir, outputName);
 	const subtitlesPath = join(tempDir, "subtitles.ass");
+	const subtitleFontsDir = join(tempDir, "subtitle-fonts");
 
 	try {
 		await writeFile(inputPath, Buffer.from(await file.arrayBuffer()));
@@ -332,7 +412,17 @@ export const POST: RequestHandler = async ({ request }) => {
 			return json({ error: "The uploaded media does not contain audio or video streams." }, { status: 400 });
 		}
 
-		if (hasVideo && subtitlePayload?.cues.length) {
+		const shouldRenderSubtitles = hasVideo && Boolean(subtitlePayload?.cues.length);
+		const subtitlePayloadToRender = shouldRenderSubtitles ? subtitlePayload : null;
+		let subtitleRenderConfig: SubtitleRenderConfig | null = null;
+
+		if (subtitlePayloadToRender) {
+			const ffmpegCapabilities = await getFfmpegCapabilities();
+
+			if (!ffmpegCapabilities.subtitleRenderFilter) {
+				return json({ error: FFMPEG_SUBTITLE_SUPPORT_ERROR }, { status: 501 });
+			}
+
 			const context: VideoSubtitleLayoutContext = {
 				width:
 					typeof videoStream?.width === "number" && Number.isFinite(videoStream.width) && videoStream.width > 0
@@ -343,15 +433,16 @@ export const POST: RequestHandler = async ({ request }) => {
 						? Math.round(videoStream.height)
 						: 1080
 			};
-			await writeFile(subtitlesPath, serializeAss(subtitlePayload, context), "utf8");
+			await writeFile(subtitlesPath, serializeAss(subtitlePayloadToRender, context), "utf8");
+			await materializeBundledSubtitleFonts(subtitleFontsDir);
+			subtitleRenderConfig = {
+				filterName: ffmpegCapabilities.subtitleRenderFilter,
+				subtitlesPath,
+				fontsDir: subtitleFontsDir
+			};
 		}
 
-		const filterComplex = buildFilterComplex(
-			segments,
-			hasVideo,
-			hasAudio,
-			hasVideo && subtitlePayload?.cues.length ? subtitlesPath : null
-		);
+		const filterComplex = buildFilterComplex(segments, hasVideo, hasAudio, subtitleRenderConfig);
 		const ffmpegArgs = [
 			"-y",
 			"-i",
@@ -392,8 +483,13 @@ export const POST: RequestHandler = async ({ request }) => {
 			}
 		});
 	} catch (error) {
+		const errorMessage = error instanceof Error ? error.message : "Failed to export MP4.";
+		const normalizedError = /No such filter:\s*'(?:ass|subtitles)'/.test(errorMessage)
+			? FFMPEG_SUBTITLE_SUPPORT_ERROR
+			: errorMessage;
+
 		return json(
-			{ error: error instanceof Error ? error.message : "Failed to export MP4." },
+			{ error: normalizedError },
 			{ status: 500 }
 		);
 	} finally {
