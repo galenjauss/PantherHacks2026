@@ -1,6 +1,5 @@
 <script lang="ts">
 	import { onDestroy } from "svelte";
-	import { Button } from "$lib/components/ui/button";
 	import { Switch } from "$lib/components/ui/switch";
 	import { Slider } from "$lib/components/ui/slider";
 	import { videoEditorState as editor } from "$lib/stores/video-editor.svelte";
@@ -21,13 +20,6 @@
 			description: (count: number) =>
 				`${count} gaps above the current threshold`,
 		},
-		{
-			key: "retake",
-			color: "#3b82f6",
-			label: "alternate variants",
-			description: (count: number) =>
-				`${count} locked semantic alternates or discarded fragments`,
-		},
 	] as const;
 
 	function getCount(key: (typeof rows)[number]["key"]): number {
@@ -39,11 +31,9 @@
 
 	let deadSpaceThresholdDraft = $state(editor.deadSpaceThreshold);
 	let clipEndTrimDraft = $state(editor.clipEndTrim);
-	let copiedState = $state<"idle" | "copied" | "error">("idle");
 
 	let deadSpaceThresholdTimeout: ReturnType<typeof setTimeout> | null = null;
 	let clipEndTrimTimeout: ReturnType<typeof setTimeout> | null = null;
-	let copyResetTimeout: ReturnType<typeof setTimeout> | null = null;
 
 	function scheduleDeadSpaceThresholdCommit(value: number) {
 		if (deadSpaceThresholdTimeout) {
@@ -85,26 +75,6 @@
 		editor.clipEndTrim = value;
 	}
 
-	async function copyLLMJson() {
-		if (!editor.hasDebugExport) return;
-
-		try {
-			await navigator.clipboard.writeText(editor.debugExportJson);
-			copiedState = "copied";
-		} catch {
-			copiedState = "error";
-		}
-
-		if (copyResetTimeout) {
-			clearTimeout(copyResetTimeout);
-		}
-
-		copyResetTimeout = setTimeout(() => {
-			copiedState = "idle";
-			copyResetTimeout = null;
-		}, 1800);
-	}
-
 	onDestroy(() => {
 		if (deadSpaceThresholdTimeout) {
 			clearTimeout(deadSpaceThresholdTimeout);
@@ -112,10 +82,6 @@
 
 		if (clipEndTrimTimeout) {
 			clearTimeout(clipEndTrimTimeout);
-		}
-
-		if (copyResetTimeout) {
-			clearTimeout(copyResetTimeout);
 		}
 	});
 </script>
@@ -135,83 +101,7 @@
 
 	<div class="border-t border-snip-border"></div>
 
-	<div class="px-4 py-3">
-		<div
-			class="flex items-center justify-between gap-3 rounded-xl border border-snip-border bg-snip-surface-elevated px-3 py-2.5"
-		>
-			<div class="min-w-0">
-				<p class="text-[12px] font-medium text-snip-text-primary">
-					Debug export JSON
-				</p>
-				<p class="text-[11px] text-snip-text-muted">
-					Transcript, raw LLM output, labels, line/slot summaries,
-					chunks, selections, and derived segments.
-				</p>
-			</div>
-			<Button
-				variant="outline"
-				size="sm"
-				class="border-snip-border bg-snip-surface text-snip-text-primary hover:bg-snip-surface-elevated"
-				disabled={!editor.hasDebugExport}
-				onclick={() => void copyLLMJson()}
-			>
-				{copiedState === "copied"
-					? "Copied"
-					: copiedState === "error"
-						? "Copy failed"
-						: "Copy debug JSON"}
-			</Button>
-		</div>
-	</div>
-
-	<div class="border-t border-snip-border"></div>
-
-	<!-- Cut categories -->
-	<div class="flex flex-col">
-		{#each rows as row, index (row.key)}
-			<div
-				class="flex items-center gap-3 px-4 py-3 transition-colors hover:bg-snip-surface-elevated"
-			>
-				<span
-					class="mt-px size-[6px] shrink-0 self-start rounded-full"
-					style={`background:${row.color}`}
-				></span>
-				<div class="min-w-0 flex-1">
-					<p
-						class="font-display text-[13px] font-semibold leading-[1.3] text-white"
-					>
-						{row.label}
-					</p>
-					<p
-						class="mt-px text-[11px] leading-[1.4] text-snip-text-secondary"
-					>
-						{row.description(getCount(row.key))}
-					</p>
-				</div>
-				<Switch
-					size="sm"
-					class="shrink-0"
-					checked={editor.cutToggles[row.key]}
-					disabled={row.key === "retake"}
-					onCheckedChange={(value: boolean) => {
-						if (row.key === "retake") return;
-						editor.cutToggles = {
-							...editor.cutToggles,
-							[row.key]: value,
-						};
-					}}
-				/>
-			</div>
-
-			{#if index < rows.length - 1}
-				<div class="mx-4 border-t border-[#1e1e1e]"></div>
-			{/if}
-		{/each}
-	</div>
-
-	<div class="mt-1 border-t border-snip-border"></div>
-
-	<!-- Thresholds -->
+	<!-- Thresholds (top of settings) -->
 	<div class="flex flex-col gap-4 px-4 py-4">
 		<div class="space-y-3">
 			<div class="flex items-center justify-between gap-3">
@@ -295,6 +185,49 @@
 				</div>
 			</div>
 		</div>
+	</div>
+
+	<div class="border-t border-snip-border"></div>
+
+	<!-- Cut categories -->
+	<div class="flex flex-col">
+		{#each rows as row, index (row.key)}
+			<div
+				class="flex items-center gap-3 px-4 py-3 transition-colors hover:bg-snip-surface-elevated"
+			>
+				<span
+					class="mt-px size-[6px] shrink-0 self-start rounded-full"
+					style={`background:${row.color}`}
+				></span>
+				<div class="min-w-0 flex-1">
+					<p
+						class="font-display text-[13px] font-semibold leading-[1.3] text-white"
+					>
+						{row.label}
+					</p>
+					<p
+						class="mt-px text-[11px] leading-[1.4] text-snip-text-secondary"
+					>
+						{row.description(getCount(row.key))}
+					</p>
+				</div>
+				<Switch
+					size="sm"
+					class="shrink-0"
+					checked={editor.cutToggles[row.key]}
+					onCheckedChange={(value: boolean) => {
+						editor.cutToggles = {
+							...editor.cutToggles,
+							[row.key]: value,
+						};
+					}}
+				/>
+			</div>
+
+			{#if index < rows.length - 1}
+				<div class="mx-4 border-t border-[#1e1e1e]"></div>
+			{/if}
+		{/each}
 	</div>
 </div>
 

@@ -1,7 +1,6 @@
 <script lang="ts">
 	import { scale } from "svelte/transition";
 	import { Button } from "$lib/components/ui/button";
-	import { Skeleton } from "$lib/components/ui/skeleton";
 	import * as ToggleGroup from "$lib/components/ui/toggle-group";
 	import { videoEditorState as editor } from "$lib/stores/video-editor.svelte";
 	import PauseIcon from "@lucide/svelte/icons/pause";
@@ -88,37 +87,6 @@
 							{/if}
 						</div>
 					</button>
-
-				<!-- Processing overlay -->
-					{#if editor.isBusy}
-						<div
-							class="pointer-events-none absolute inset-x-0 bottom-0 p-4"
-						>
-							<div
-								class="rounded-2xl border border-white/10 bg-black/65 p-4 backdrop-blur"
-							>
-								<div
-									class="mb-3 flex items-center gap-2 text-sm text-white"
-								>
-									<WandSparklesIcon
-										class="size-4 text-primary"
-									/>
-									<span>{editor.statusDescription}</span>
-								</div>
-								<div class="space-y-2">
-									<Skeleton
-										class="h-2 w-full rounded bg-white/12"
-									/>
-									<Skeleton
-										class="h-2 w-4/5 rounded bg-white/10"
-									/>
-									<Skeleton
-										class="h-2 w-3/5 rounded bg-white/10"
-									/>
-								</div>
-							</div>
-						</div>
-					{/if}
 				{:else}
 					<div
 						class="flex h-full flex-col items-center justify-center gap-4 px-8 text-center"

@@ -3,6 +3,7 @@
 		startMs: number;
 		endMs: number;
 		color: string;
+		beatId?: string;
 		previewText?: string;
 	}
 
@@ -10,11 +11,19 @@
 		currentTimeMs: number;
 		totalDurationMs: number;
 		beatRegions: BeatRegion[];
+		highlightedBeatId?: string | null;
 		formatClock: (ms: number) => string;
 		onSeek: (timeMs: number) => void;
 	}
 
-	let { currentTimeMs, totalDurationMs, beatRegions, formatClock, onSeek }: Props = $props();
+	let {
+		currentTimeMs,
+		totalDurationMs,
+		beatRegions,
+		highlightedBeatId = null,
+		formatClock,
+		onSeek
+	}: Props = $props();
 
 	let trackEl = $state<HTMLDivElement | null>(null);
 	let isScrubbing = $state(false);
@@ -141,10 +150,18 @@
 		{#each beatRegions as region, idx}
 			{@const left = (region.startMs / totalDurationMs) * 100}
 			{@const width = ((region.endMs - region.startMs) / totalDurationMs) * 100}
+			{@const isClipTreeHighlight =
+				highlightedBeatId != null &&
+				region.beatId != null &&
+				region.beatId === highlightedBeatId}
 			<!-- svelte-ignore a11y_no_static_element_interactions -->
 			<div
-				class="absolute inset-y-0"
-				style="left:{left}%;width:{width}%;background:{region.color}60;"
+				class="absolute inset-y-0 transition-[filter,box-shadow] duration-150"
+				style="left:{left}%;width:{width}%;background:{isClipTreeHighlight
+					? region.color
+					: `${region.color}60`};box-shadow:{isClipTreeHighlight
+					? `inset 0 0 0 2px rgba(255,255,255,0.35), 0 0 12px ${region.color}99`
+					: 'none'};filter:{isClipTreeHighlight ? 'brightness(1.15)' : 'none'};"
 				onmouseenter={(e) => handleRegionEnter(idx, e)}
 				onmousemove={handleRegionMove}
 				onmouseleave={handleRegionLeave}
