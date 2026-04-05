@@ -2165,9 +2165,10 @@ class VideoEditorState {
 		await this.transcribe();
 	}
 
-	async maybeSyncAutocutJob(signature: string) {
+	async maybeSyncAutocutJob(signature: string, options?: { force?: boolean }) {
 		if (!browser) return;
-		if (!signature || signature === this.lastSyncSignature || this.analyzing) return;
+		if (!signature || this.analyzing) return;
+		if (!options?.force && signature === this.lastSyncSignature) return;
 
 		const file = this.selectedFile;
 		if (!file) return;
@@ -2240,6 +2241,13 @@ class VideoEditorState {
 		} catch (error) {
 			this.jobError = error instanceof Error ? error.message : "Failed to refresh the autocut job.";
 		}
+	}
+
+	async rerunAutocutJob() {
+		const signature = this.syncSignature;
+		if (!signature || this.isBusy || this.isSyncing) return;
+
+		await this.maybeSyncAutocutJob(signature, { force: true });
 	}
 
 	private clearTranscriptPolling() {

@@ -238,8 +238,8 @@
 				variant="outline"
 				size="sm"
 				class="snip-again-btn rounded-lg border-snip-border/50 bg-snip-bg/60 text-snip-text-primary transition-transform hover:scale-[1.03] hover:bg-snip-surface-elevated active:scale-95"
-				disabled={!editor.jobId}
-				onclick={() => void editor.pollJob()}
+				disabled={!editor.syncSignature || editor.isBusy || editor.isSyncing}
+				onclick={() => void editor.rerunAutocutJob()}
 			>
 				<ScissorsIcon
 					class="mr-1.5 size-3.5 transition-transform duration-200 ease-out"

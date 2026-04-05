@@ -17,7 +17,10 @@
       "Bash(git pull:*)",
       "Bash(git push:*)",
       "Bash(git add:*)",
-      "Bash(git commit -m ':*)"
+      "Bash(git commit -m ':*)",
+      "Bash(grep -l \"WordSemanticLabel\\\\|wordLabels\\\\|lineId\\\\|slotId\\\\|variantId\" /Users/jordannetz/Desktop/hackathons/pantherhacks2026/PantherHacks2026/src/lib/video/*.ts)",
+      "Bash(grep -rh \"label\\\\.\" /Users/jordannetz/Desktop/hackathons/pantherhacks2026/PantherHacks2026/src/lib/video/*.ts)",
+      "Bash(grep -rn \"\\\\.index\\\\|\\\\.lineId\\\\|\\\\.lineOrder\\\\|\\\\.slotId\\\\|\\\\.slotOrder\\\\|\\\\.variantId\\\\|\\\\.lockId\\\\|\\\\.status\" /Users/jordannetz/Desktop/hackathons/pantherhacks2026/PantherHacks2026/src/lib/video/*.ts)"
     ],
     "additionalDirectories": [
       "/Users/jordannetz/Desktop/hackathons/pantherhacks2026/PantherHacks2026/src/routes/api/video/transcribe"
