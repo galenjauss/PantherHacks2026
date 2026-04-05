@@ -12,6 +12,8 @@
 	let idle = $state(false);
 	let idleTimer = $state<ReturnType<typeof setTimeout> | null>(null);
 
+	const previewBlocked = $derived(editor.isBusy || editor.isSyncing);
+
 	function resetIdle() {
 		idle = false;
 		if (idleTimer) clearTimeout(idleTimer);
@@ -70,10 +72,10 @@
 					<!-- Center play/pause overlay -->
 					<button
 						type="button"
-						class="absolute inset-0 flex items-center justify-center transition-opacity duration-300 {editor.isBusy
+						class="absolute inset-0 flex items-center justify-center transition-opacity duration-300 {previewBlocked
 							? 'pointer-events-none cursor-default opacity-0'
 							: `cursor-pointer ${idle && editor.isPreviewPlaying ? 'opacity-0' : 'opacity-100'}`}"
-						disabled={!editor.videoUrl || editor.isBusy}
+						disabled={!editor.videoUrl || previewBlocked}
 						onclick={() => void editor.previewAppliedCuts()}
 					>
 						<div
