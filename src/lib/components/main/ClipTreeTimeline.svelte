@@ -85,16 +85,21 @@
 					const ax2 = x2 - 8;
 					if (ax2 <= ax1) continue;
 					const midX = (ax1 + ax2) / 2;
-
+					const horizontalGap = ax2 - ax1;
 					const sameLevel = Math.abs(y1 - y2) < 6;
 
-					// Always use a bezier: gentle bump for same-level so the path
-					// is never a perfectly horizontal segment (avoids rendering issues
-					// where thin, low-opacity horizontal strokes can vanish).
-					const bump = sameLevel ? 0.8 : 0;
-					const cy1 = y1 - bump;
-					const cy2 = y2 + bump;
-					const d = `M ${ax1},${y1} C ${midX},${cy1} ${midX},${cy2} ${ax2},${y2}`;
+					let d: string;
+					if (sameLevel) {
+						// Give same-row connections a real arch so the stroke and arrowhead
+						// stay visible instead of collapsing into a nearly flat segment.
+						const archHeight = Math.max(12, Math.min(24, horizontalGap * 0.18));
+						const ctrl1X = ax1 + horizontalGap * 0.28;
+						const ctrl2X = ax2 - horizontalGap * 0.28;
+						const ctrlY = y1 - archHeight;
+						d = `M ${ax1},${y1} C ${ctrl1X},${ctrlY} ${ctrl2X},${ctrlY} ${ax2},${y2}`;
+					} else {
+						d = `M ${ax1},${y1} C ${midX},${y1} ${midX},${y2} ${ax2},${y2}`;
+					}
 
 					result.push({
 						key: `${lv.id}--${rv.id}`,
