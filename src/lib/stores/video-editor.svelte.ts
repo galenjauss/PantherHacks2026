@@ -1760,7 +1760,7 @@ class VideoEditorState {
 	}
 
 	formatSegmentDuration(ms: number): string {
-		if (ms < 1000) return `${ms} ms`;
+		if (ms < 1000) return `${(ms/1000).toFixed(1)}s`;
 
 		return `${(ms / 1000).toFixed(ms < 10_000 ? 1 : 0)}s`;
 	}
