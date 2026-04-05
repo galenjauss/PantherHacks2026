@@ -117,27 +117,51 @@ import PauseIcon from "@lucide/svelte/icons/pause";
 
 	<!-- Control bar between video preview and clip strip -->
 	{#if editor.videoUrl}
-		<div class="flex h-10 shrink-0 items-center justify-between border-t border-snip-border/30 bg-snip-bg px-4">
+		<div class="flex h-10 shrink-0 items-center gap-3 border-t border-snip-border/30 bg-snip-bg px-4">
 			<ToggleGroup.Root
 				type="single"
 				value={editor.previewMode}
 				onValueChange={(value) => { if (value) editor.setPreviewMode(value as "before" | "after"); }}
-				class="flex items-center gap-1 rounded-full border border-snip-border bg-snip-surface p-1"
+				class="flex items-center gap-0.5 rounded-full border border-snip-border bg-snip-surface p-0.5"
 				spacing={4}
 			>
 				<ToggleGroup.Item
 					value="before"
-					class="font-display rounded-full px-4 py-1 text-xs font-semibold text-snip-text-muted transition-all hover:text-white data-[state=on]:bg-white/15 data-[state=on]:text-white data-[state=on]:shadow-sm"
+					class="font-display rounded-full px-3 py-1 text-[11px] font-semibold text-snip-text-muted transition-all hover:text-white data-[state=on]:bg-white/15 data-[state=on]:text-white data-[state=on]:shadow-sm"
 				>
 					Before
 				</ToggleGroup.Item>
 				<ToggleGroup.Item
 					value="after"
-					class="font-display rounded-full px-4 py-1 text-xs font-semibold text-snip-text-muted transition-all hover:text-white data-[state=on]:bg-primary data-[state=on]:text-white data-[state=on]:shadow-[0_0_12px_rgba(124,58,237,0.4)]"
+					class="font-display rounded-full px-3 py-1 text-[11px] font-semibold text-snip-text-muted transition-all hover:text-white data-[state=on]:bg-primary data-[state=on]:text-white data-[state=on]:shadow-[0_0_12px_rgba(124,58,237,0.4)]"
 				>
 					After
 				</ToggleGroup.Item>
 			</ToggleGroup.Root>
+
+			{#if editor.totalDurationMs > 0}
+				{@const savedPct = Math.round((editor.selectedCutDurationMs / editor.totalDurationMs) * 100)}
+				<div class="mx-1 h-4 w-px bg-snip-border/50"></div>
+				<div class="flex items-center gap-3 text-[11px] tabular-nums text-snip-text-muted">
+					<span>
+						<span class="font-semibold text-primary">{editor.formatDuration(editor.selectedCutDurationMs)}</span> saved
+					</span>
+					<span class="text-snip-border">|</span>
+					<span>
+						<span class="font-semibold text-white">{savedPct}%</span> shorter
+					</span>
+					<span class="text-snip-border">|</span>
+					<span>
+						<span class="font-semibold text-white">{editor.selectedCutCount}</span> cuts
+					</span>
+					<span class="text-snip-border">|</span>
+					<span>
+						<span class="font-semibold text-white">{editor.formatClock(editor.cleanDurationMs)}</span> final
+					</span>
+				</div>
+			{/if}
+
+			<div class="flex-1"></div>
 
 			<Button
 				variant="outline"

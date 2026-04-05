@@ -453,17 +453,16 @@ class VideoEditorState {
 
 	get workflowSteps(): Array<{ label: string; state: WorkflowStepState; glyph: string }> {
 		const steps = [
-			"Upload & validate format",
-			"Generate transcript",
-			"Analyze & find cuts",
-			"Sync autocut job",
-			"Preview ready"
+			"Upload to AssemblyAI",
+			"Generate Transcript",
+			"Analyze & Find Cuts",
+			"Ready"
 		];
 
 		return steps.map((label, index) => {
 			const number = index + 1;
 			const state =
-				this.workflowStep > steps.length || number < this.workflowStep
+				number < this.workflowStep
 					? "done"
 					: number === this.workflowStep
 						? "active"
@@ -479,34 +478,30 @@ class VideoEditorState {
 
 	get statusLabel(): string {
 		if (!this.selectedFile) return "Awaiting upload";
-		if (this.transcribing && !this.transcriptId) return "Uploading";
+		if (this.transcribing) return "Uploading to AssemblyAI";
 		if (this.pollingTranscript) {
-			if (this.normalizedTranscriptStatus === "queued") return "Queued";
-			return "Loading transcript";
+			if (this.normalizedTranscriptStatus === "queued") return "Queued for transcription";
+			return "Generating transcript";
 		}
-		if (this.analyzing) return "Finding cuts";
-		if (this.isSyncing) return "Syncing cuts";
+		if (this.analyzing) return "Analyzing transcript";
 		if (this.isReady) return "Ready";
 		return "Queued";
 	}
 
 	get statusDescription(): string {
 		if (!this.selectedFile) return "Upload a video to begin the editor pipeline.";
-		if (this.transcribing && !this.transcriptId) {
-			return "Uploading the clip and starting the transcript job.";
+		if (this.transcribing) {
+			return "Uploading the clip to AssemblyAI.";
 		}
 		if (this.pollingTranscript) {
 			if (this.normalizedTranscriptStatus === "queued") {
-				return "The transcript request is queued. Timestamped words will stream in once processing begins.";
+				return "The transcript request is queued. Processing will begin shortly.";
 			}
 
-			return "Loading the transcript with word-level timestamps from AssemblyAI.";
+			return "Generating word-level timestamps from AssemblyAI.";
 		}
 		if (this.analyzing) {
-			return "Labeling semantic lines, slots, variants, and removable filler from the transcript.";
-		}
-		if (this.isSyncing) {
-			return "Sending the latest transcript and cut plan to the autocut job.";
+			return "Finding cuts and labeling semantic content from the transcript.";
 		}
 		if (this.isReady) {
 			return "Preview the selected slot mix, inspect pause chunks, and refine the cut plan.";
@@ -517,9 +512,9 @@ class VideoEditorState {
 	get workflowStep(): number {
 		if (!this.selectedFile) return 0;
 		if (this.isReady) return 5;
-		if (this.transcribing || this.pollingTranscript) return 2;
-		if (this.analyzing || this.transcriptWords.length > 0) return 3;
-		if (this.creatingAutocutJob || this.job) return 4;
+		if (this.transcribing) return 1;
+		if (this.pollingTranscript) return 2;
+		if (this.analyzing) return 3;
 		return 1;
 	}
 

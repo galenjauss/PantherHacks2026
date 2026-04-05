@@ -11,9 +11,20 @@
 	import CutSettingsPanel from "$lib/components/sidebar/CutSettingsPanel.svelte";
 		import ScriptPanel from "$lib/components/sidebar/ScriptPanel.svelte";
 	import VideoPreview from "$lib/components/main/VideoPreview.svelte";
+	import * as Dialog from "$lib/components/ui/dialog";
 	import { videoEditorState as editor } from "$lib/stores/video-editor.svelte";
 
 	let sidebarTab = $state<"transcript" | "script" | "cuts" | "settings">("transcript");
+	let showStatsDialog = $state(false);
+	let wasBusy = $state(false);
+
+	$effect(() => {
+		const busy = editor.isBusy;
+		if (wasBusy && !busy && editor.totalDurationMs > 0) {
+			showStatsDialog = true;
+		}
+		wasBusy = busy;
+	});
 
 	function handleSeekSlot(_slotId: string, startMs: number) {
 		editor.seekTo(startMs);
@@ -105,19 +116,6 @@
 				<Resizable.PaneGroup direction="horizontal" class="h-full">
 					<Resizable.Pane defaultSize={25} minSize={15} maxSize={40}>
 						<aside class="flex h-full flex-col overflow-hidden border-r border-snip-border bg-snip-surface">
-							<!-- Hero stats — single source of truth -->
-							{#if editor.totalDurationMs > 0}
-								{@const savedPct = editor.totalDurationMs > 0 ? Math.round((editor.selectedCutDurationMs / editor.totalDurationMs) * 100) : 0}
-								<div class="shrink-0 border-b border-snip-border px-5 py-5">
-									<span class="font-display text-3xl font-extrabold text-primary">
-										<AnimatedNumber value={editor.selectedCutDurationMs} format={(ms) => editor.formatDuration(ms)} /> saved
-									</span>
-									<p class="mt-1.5 text-[12px] font-medium text-snip-text-secondary">
-										<AnimatedNumber value={savedPct} format={(n) => `${Math.round(n)}%`} /> shorter · {editor.selectedCutCount} cuts · {editor.formatClock(editor.cleanDurationMs)} clean
-									</p>
-								</div>
-							{/if}
-
 							{#if editor.isBusy}
 								<div class="flex min-h-0 flex-1 flex-col overflow-y-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
 									<div transition:fade={{ duration: 180 }} class="flex shrink-0 flex-col">
@@ -280,11 +278,9 @@
 
 					<div class="text-[10px] tabular-nums text-snip-text-muted">
 						{#if editor.totalDurationMs > 0}
-							{editor.selectedCutCount} cuts &middot;
-							<span class="text-snip-text-secondary">{editor.formatDuration(editor.selectedCutDurationMs)} saved</span>
-							&middot; {editor.formatClock(editor.cleanDurationMs)} final
+							{editor.formatClock(editor.totalDurationMs)}
 							{#if editor.swappableBeatCount > 0}
-								{editor.swappableBeatCount} beat swaps
+								&middot; {editor.swappableBeatCount} swaps
 							{/if}
 						{:else}
 							Waiting for transcript&hellip;
@@ -464,3 +460,44 @@
 		</Resizable.Pane>
 	</Resizable.PaneGroup>
 </div>
+
+<Dialog.Root bind:open={showStatsDialog}>
+	<Dialog.Content class="gap-0 overflow-hidden border-snip-border bg-snip-surface p-0 sm:max-w-sm">
+		<div class="flex flex-col items-center gap-1 bg-gradient-to-b from-primary/15 to-transparent px-6 pt-7 pb-5">
+			<ScissorsIcon class="mb-1 size-6 text-primary" />
+			<Dialog.Title class="font-display text-lg font-bold text-white">Analysis Complete</Dialog.Title>
+			<Dialog.Description class="text-[13px] text-snip-text-secondary">
+				Here's what Snip AI found.
+			</Dialog.Description>
+		</div>
+
+		{@const savedPct = editor.totalDurationMs > 0 ? Math.round((editor.selectedCutDurationMs / editor.totalDurationMs) * 100) : 0}
+		<div class="grid grid-cols-2 gap-px bg-snip-border/50">
+			<div class="flex flex-col gap-0.5 bg-snip-surface px-5 py-4">
+				<span class="text-[10px] font-medium uppercase tracking-wider text-snip-text-muted">Saved</span>
+				<span class="font-display text-xl font-extrabold tabular-nums text-primary">{editor.formatDuration(editor.selectedCutDurationMs)}</span>
+			</div>
+			<div class="flex flex-col gap-0.5 bg-snip-surface px-5 py-4">
+				<span class="text-[10px] font-medium uppercase tracking-wider text-snip-text-muted">Shorter</span>
+				<span class="font-display text-xl font-extrabold tabular-nums text-white">{savedPct}%</span>
+			</div>
+			<div class="flex flex-col gap-0.5 bg-snip-surface px-5 py-4">
+				<span class="text-[10px] font-medium uppercase tracking-wider text-snip-text-muted">Cuts</span>
+				<span class="font-display text-xl font-extrabold tabular-nums text-white">{editor.selectedCutCount}</span>
+			</div>
+			<div class="flex flex-col gap-0.5 bg-snip-surface px-5 py-4">
+				<span class="text-[10px] font-medium uppercase tracking-wider text-snip-text-muted">Final</span>
+				<span class="font-display text-xl font-extrabold tabular-nums text-white">{editor.formatClock(editor.cleanDurationMs)}</span>
+			</div>
+		</div>
+
+		<div class="flex items-center justify-between border-t border-snip-border/50 bg-snip-surface px-5 py-3">
+			<span class="text-[11px] text-snip-text-muted">
+				Original: <span class="font-medium text-snip-text-secondary">{editor.formatClock(editor.totalDurationMs)}</span>
+			</span>
+			<Button size="sm" onclick={() => (showStatsDialog = false)} class="font-display px-5">
+				Let's Edit
+			</Button>
+		</div>
+	</Dialog.Content>
+</Dialog.Root>
