@@ -115,9 +115,8 @@
 				></div>
 
 				<div
-					class="absolute left-[0%] top-[47%] h-px w-69 -rotate-12 border-t-2 border-dashed border-primary/55 opacity-80"
+					class="absolute left-[-6%] top-[47%] h-px w-87 -rotate-12 border-t-2 border-dashed border-primary/55 opacity-80"
 				></div>
-
 				<div class="absolute left-[20%] top-[33%] rotate-155">
 					<div class="relative">
 						<div
