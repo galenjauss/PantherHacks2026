@@ -4,22 +4,10 @@
 	import * as Select from "$lib/components/ui/select";
 	import { videoEditorState as editor } from "$lib/stores/video-editor.svelte";
 	import type { VideoSubtitleVerticalAlign } from "$lib/video/subtitles";
-
-	const FONT_FAMILIES = [
-		"Montserrat",
-		"Anton",
-		"Poppins",
-		"Arial",
-		"Helvetica",
-		"Verdana",
-		"Georgia",
-		"Times New Roman",
-		"Courier New",
-		"Impact",
-		"Comic Sans MS",
-		"Trebuchet MS",
-		"Lucida Console"
-	];
+	import {
+		BUNDLED_VIDEO_SUBTITLE_FONT_FAMILIES,
+		VIDEO_SUBTITLE_FONT_FAMILIES
+	} from "$lib/video/subtitle-fonts";
 
 	const VERTICAL_POSITIONS: { value: VideoSubtitleVerticalAlign; label: string }[] = [
 		{ value: "top", label: "Top" },
@@ -78,13 +66,13 @@
 					}}
 				>
 					<Select.Trigger
-						class="h-7 w-[100px] rounded-md border border-snip-border bg-snip-surface-elevated px-2 text-[11px] text-snip-text-primary"
+						class="h-7 w-[100px] rounded-md border border-snip-border bg-snip-border px-2 text-[11px] text-snip-text-primary"
 					>
 						{VERTICAL_POSITIONS.find((p) => p.value === editor.subtitleStyle.position.verticalAlign)?.label ?? "Bottom"}
 					</Select.Trigger>
-					<Select.Content class="border-snip-border bg-snip-surface">
+					<Select.Content class="border-snip-border bg-snip-surface-elevated text-snip-text-primary">
 						{#each VERTICAL_POSITIONS as pos (pos.value)}
-							<Select.Item value={pos.value} class="text-[11px]">{pos.label}</Select.Item>
+							<Select.Item value={pos.value} class="text-[11px] text-snip-text-primary hover:bg-snip-border">{pos.label}</Select.Item>
 						{/each}
 					</Select.Content>
 				</Select.Root>
@@ -147,17 +135,22 @@
 					}}
 				>
 					<Select.Trigger
-						class="h-7 w-[130px] truncate rounded-md border border-snip-border bg-snip-surface-elevated px-2 text-[11px] text-snip-text-primary"
+						class="h-7 w-[130px] truncate rounded-md border border-snip-border bg-snip-border px-2 text-[11px] text-snip-text-primary"
 					>
 						{editor.subtitleStyle.fontFamily}
 					</Select.Trigger>
-					<Select.Content class="border-snip-border bg-snip-surface">
-						{#each FONT_FAMILIES as font (font)}
-							<Select.Item value={font} class="text-[11px]" style="font-family: {font};">{font}</Select.Item>
+					<Select.Content class="border-snip-border bg-snip-surface-elevated text-snip-text-primary">
+						{#each VIDEO_SUBTITLE_FONT_FAMILIES as font (font)}
+							<Select.Item value={font} class="text-[11px] text-snip-text-primary hover:bg-snip-border" style="font-family: {font};">{font}</Select.Item>
 						{/each}
 					</Select.Content>
 				</Select.Root>
 			</div>
+
+			<p class="text-[11px] leading-relaxed text-snip-text-muted">
+				Bundled for server export: {BUNDLED_VIDEO_SUBTITLE_FONT_FAMILIES.join(", ")}.
+				Other system fonts depend on the render host.
+			</p>
 
 			<div class="space-y-1.5">
 				<div class="flex items-center justify-between">

@@ -398,12 +398,19 @@
 							formatDuration={editor.formatSegmentDuration.bind(
 								editor,
 							)}
+							videoUrl={editor.videoUrl}
 							onSlotHover={(beatId) => {
 								clipTreeHoveredBeatId = beatId;
 							}}
 							onSelectVariant={(slotId, variantId, startMs) => {
 								editor.selectSlotVariant(slotId, variantId);
 								editor.seekTo(startMs);
+							}}
+							onTrimVariant={(slotId, variantId, field, valueMs) => {
+								editor.setVariantTrim(slotId, variantId, field, valueMs);
+							}}
+							onClearTrim={(slotId, variantId) => {
+								editor.clearVariantTrim(slotId, variantId);
 							}}
 						/>
 					{:else if editor.clipStripSegments.length > 0}

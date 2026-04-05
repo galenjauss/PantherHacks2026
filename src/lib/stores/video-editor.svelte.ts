@@ -71,6 +71,11 @@ export interface EditorCutSegment extends Omit<AutocutAnalysisSegment, "category
 	locked: boolean;
 }
 
+export interface VariantTrimOffset {
+	startOffsetMs: number;
+	endOffsetMs: number;
+}
+
 export interface EditorClipStripBeatBlock {
 	id: string;
 	beatId: string;
@@ -85,6 +90,10 @@ export interface EditorClipStripBeatBlock {
 			kind: EditorBeatVariant["status"];
 			isSelected: boolean;
 			fillPct: number;
+			trimOffset: VariantTrimOffset | null;
+			trimmedStart: number;
+			trimmedEnd: number;
+			trimmedDurationMs: number;
 		}
 	>;
 }
@@ -223,6 +232,17 @@ function buildPlaybackSegments(
 	return merged;
 }
 
+function clampSegmentToTrim(
+	segment: AutocutAnalysisSegment,
+	trimStart: number,
+	trimEnd: number
+): AutocutAnalysisSegment | null {
+	const start = Math.max(segment.start, trimStart);
+	const end = Math.min(segment.end, trimEnd);
+	if (start >= end) return null;
+	return { ...segment, start, end };
+}
+
 function humanizeId(id: string, prefix: string): string {
 	const num = id.replace(new RegExp(`^${prefix}_`), "");
 	return `${prefix.charAt(0).toUpperCase()}${prefix.slice(1)} ${num}`;
@@ -286,6 +306,7 @@ class VideoEditorState {
 	activeFilter = $state<EditorFilter>("all");
 	selectedCutIds = $state<string[]>([]);
 	selectedSlotVariantIds = $state<Record<string, string>>({});
+	variantTrimOffsets = $state<Record<string, VariantTrimOffset>>({});
 	deadSpaceThreshold = $state(DEFAULT_ANALYSIS_SEGMENT_OPTIONS.deadSpaceThresholdMs);
 	clipEndTrim = $state(DEFAULT_ANALYSIS_SEGMENT_OPTIONS.clipEndTrimMs);
 	cutToggles = $state<Record<EditorCutCategory, boolean>>({
@@ -1121,6 +1142,8 @@ class VideoEditorState {
 			const variant = this.selectedVariantForGroup(group);
 			if (!variant) continue;
 
+			const trimmed = this.getTrimmedTimes(variant, group.slotId, variant.variantId);
+
 			const matchingRefIndexes = this.analysisSegmentRefs
 				.map((ref, refIndex) => ({ ref, refIndex }))
 				.filter(({ ref }) =>
@@ -1143,8 +1166,11 @@ class VideoEditorState {
 					if (!this.deadSpaceIsSelectedPath(this.analysisSegments, refIndex)) continue;
 					if (cutSegment && this.isCutActive(cutSegment, selected)) continue;
 
+					const clamped = clampSegmentToTrim(segment, trimmed.start, trimmed.end);
+					if (!clamped) continue;
+
 					playbackSegments.push({
-						...segment,
+						...clamped,
 						category: "good"
 					});
 					continue;
@@ -1158,8 +1184,11 @@ class VideoEditorState {
 					continue;
 				}
 
+				const clamped = clampSegmentToTrim(segment, trimmed.start, trimmed.end);
+				if (!clamped) continue;
+
 				playbackSegments.push({
-					...segment,
+					...clamped,
 					category: "good",
 					takeId: variant.variantId,
 					beatId: group.slotId
@@ -1364,10 +1393,16 @@ class VideoEditorState {
 
 		const blocks = beatGroups.map((group, index) => {
 			const selectedVariant = this.selectedVariantForGroup(group);
-			const maxDurationMs = Math.max(...group.variants.map((variant) => variant.durationMs), 1);
+			const selectedTrimmed = selectedVariant
+				? this.getTrimmedTimes(selectedVariant, group.slotId, selectedVariant.variantId)
+				: null;
+			const maxDurationMs = Math.max(...group.variants.map((variant) => {
+				const t = this.getTrimmedTimes(variant, group.slotId, variant.variantId);
+				return t.durationMs;
+			}), 1);
 			const widthMs = Math.max(maxDurationMs, 600);
-			const startMs = selectedVariant?.start ?? group.variants[0]?.start ?? 0;
-			const endMs = startMs + (selectedVariant?.durationMs ?? group.variants[0]?.durationMs ?? 0);
+			const startMs = selectedTrimmed?.start ?? group.variants[0]?.start ?? 0;
+			const endMs = selectedTrimmed?.end ?? (startMs + (group.variants[0]?.durationMs ?? 0));
 
 			return {
 				id: group.slotId,
@@ -1378,17 +1413,25 @@ class VideoEditorState {
 				startMs,
 				endMs,
 				widthMs,
-				variants: group.variants.map((variant) => ({
-					id: variant.id,
-					variantId: variant.variantId,
-					label: variant.label,
-					kind: variant.status,
-					durationMs: variant.durationMs,
-					start: variant.start,
-					previewText: variant.previewText,
-					isSelected: selectedVariant?.variantId === variant.variantId,
-					fillPct: clamp(Math.round((variant.durationMs / maxDurationMs) * 100), 18, 100)
-				}))
+				variants: group.variants.map((variant) => {
+					const trimOffset = this.getTrimOffset(group.slotId, variant.variantId);
+					const trimmed = this.getTrimmedTimes(variant, group.slotId, variant.variantId);
+					return {
+						id: variant.id,
+						variantId: variant.variantId,
+						label: variant.label,
+						kind: variant.status,
+						durationMs: variant.durationMs,
+						start: variant.start,
+						previewText: variant.previewText,
+						isSelected: selectedVariant?.variantId === variant.variantId,
+						fillPct: clamp(Math.round((trimmed.durationMs / maxDurationMs) * 100), 18, 100),
+						trimOffset,
+						trimmedStart: trimmed.start,
+						trimmedEnd: trimmed.end,
+						trimmedDurationMs: trimmed.durationMs
+					};
+				})
 			};
 		});
 		const totalWidthMs = blocks.reduce((sum, block) => sum + block.widthMs, 0);
@@ -1416,7 +1459,8 @@ class VideoEditorState {
 			.map((group, groupIndex) => {
 				const variant = this.selectedVariantForSlotId(group.slotId);
 				if (!variant) return null;
-				return { group, variant, groupIndex };
+				const trimmed = this.getTrimmedTimes(variant, group.slotId, variant.variantId);
+				return { group, variant, groupIndex, trimmed };
 			})
 			.filter((entry): entry is NonNullable<typeof entry> => Boolean(entry));
 
@@ -1428,12 +1472,12 @@ class VideoEditorState {
 
 		for (let i = 0; i < beatEntries.length; i++) {
 			const entry = beatEntries[i];
-			const { group, variant } = entry;
+			const { group, variant, trimmed } = entry;
 
 			// Add cut/gap segments that fall before this beat (after previous beat or start)
-			const prevEnd = i > 0 ? beatEntries[i - 1].variant.end : 0;
+			const prevEnd = i > 0 ? beatEntries[i - 1].trimmed.end : 0;
 			const gapStart = prevEnd;
-			const gapEnd = variant.start;
+			const gapEnd = trimmed.start;
 
 			if (gapEnd > gapStart) {
 				// Find cuts in this gap region
@@ -1488,12 +1532,12 @@ class VideoEditorState {
 				beatId: group.slotId,
 				label,
 				humanLabel: humanizeSlotId(group.slotId),
-				durationMs: variant.durationMs,
+				durationMs: trimmed.durationMs,
 				widthPct: 0,
 				color: colorMap.get(group.slotId) ?? BEAT_COLORS[0],
-				startMs: variant.start
+				startMs: trimmed.start
 			});
-			totalMs += variant.durationMs;
+			totalMs += trimmed.durationMs;
 		}
 
 		if (totalMs <= 0) return [];
@@ -1873,6 +1917,7 @@ class VideoEditorState {
 		this.activeFilter = "all";
 		this.selectedCutIds = [];
 		this.selectedSlotVariantIds = {};
+		this.variantTrimOffsets = {};
 		this.transcribing = false;
 		this.pollingTranscript = false;
 		this.analyzing = false;
@@ -1997,6 +2042,45 @@ class VideoEditorState {
 
 	selectBeatVariant(beatId: string, variantId: string) {
 		this.selectSlotVariant(beatId, variantId);
+	}
+
+	private trimKey(slotId: string, variantId: string): string {
+		return `${slotId}::${variantId}`;
+	}
+
+	getTrimOffset(slotId: string, variantId: string): VariantTrimOffset | null {
+		return this.variantTrimOffsets[this.trimKey(slotId, variantId)] ?? null;
+	}
+
+	getTrimmedTimes(variant: { start: number; durationMs: number }, slotId: string, variantId: string): { start: number; end: number; durationMs: number } {
+		const trim = this.getTrimOffset(slotId, variantId);
+		const originalEnd = variant.start + variant.durationMs;
+		const start = variant.start + (trim?.startOffsetMs ?? 0);
+		const end = originalEnd + (trim?.endOffsetMs ?? 0);
+		const clampedStart = Math.max(0, start);
+		const clampedEnd = Math.max(clampedStart, end);
+		return { start: clampedStart, end: clampedEnd, durationMs: clampedEnd - clampedStart };
+	}
+
+	setVariantTrim(slotId: string, variantId: string, field: "startOffsetMs" | "endOffsetMs", valueMs: number) {
+		const key = this.trimKey(slotId, variantId);
+		const existing = this.variantTrimOffsets[key] ?? { startOffsetMs: 0, endOffsetMs: 0 };
+		const updated = { ...existing, [field]: valueMs };
+
+		if (updated.startOffsetMs === 0 && updated.endOffsetMs === 0) {
+			const { [key]: _, ...rest } = this.variantTrimOffsets;
+			this.variantTrimOffsets = rest;
+		} else {
+			this.variantTrimOffsets = { ...this.variantTrimOffsets, [key]: updated };
+		}
+	}
+
+	clearVariantTrim(slotId: string, variantId: string) {
+		const key = this.trimKey(slotId, variantId);
+		if (key in this.variantTrimOffsets) {
+			const { [key]: _, ...rest } = this.variantTrimOffsets;
+			this.variantTrimOffsets = rest;
+		}
 	}
 
 	async maybeStartProcessing() {
