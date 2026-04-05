@@ -224,12 +224,12 @@
 			>
 				<div class="space-y-4">
 					<p
-						class="text-xs font-medium uppercase tracking-[0.28em] text-muted-foreground"
+						class="text-xs font-medium uppercase tracking-[0.3em] text-muted-foreground"
 					>
 						Sample snip
 					</p>
 					<h2
-						class="max-w-xl text-3xl font-semibold tracking-tight text-white sm:text-4xl"
+						class="max-w-xl text-3xl leading-[1.31] font-semibold tracking-tight text-white sm:text-4xl"
 					>
 						See the cut happen before we wire up the full demo flow
 					</h2>
