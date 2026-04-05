@@ -159,18 +159,12 @@
 		</div>
 	</header>
 
-	<Resizable.PaneGroup direction="vertical" class="min-h-0 flex-1">
-		<Resizable.Pane defaultSize={75} minSize={40}>
-			<div class="h-full overflow-hidden">
-				<Resizable.PaneGroup direction="horizontal" class="h-full">
-					<Resizable.Pane
-						defaultSize={31.25}
-						minSize={15}
-						maxSize={40}
-					>
-						<aside
-							class="flex h-full flex-col overflow-hidden border-r border-snip-border bg-snip-surface"
-						>
+	<div class="min-h-0 flex-1 overflow-hidden">
+		<Resizable.PaneGroup direction="horizontal" class="h-full">
+			<Resizable.Pane defaultSize={31.25} minSize={15} maxSize={40}>
+				<aside
+					class="flex h-full flex-col overflow-hidden border-r border-snip-border bg-snip-surface"
+				>
 							{#if editor.isBusy}
 								<div
 									class="flex min-h-0 flex-1 flex-col overflow-hidden"
@@ -295,34 +289,33 @@
 									{/if}
 								</div>
 							{/if}
-						</aside>
-					</Resizable.Pane>
+				</aside>
+			</Resizable.Pane>
 
-					<Resizable.Handle
-						withHandle
-						class="bg-snip-border [&>div]:h-10 [&>div]:w-[5px] [&>div]:rounded-full [&>div]:bg-white/20 hover:[&>div]:bg-white/40 [&>div]:transition-colors"
-					/>
+			<Resizable.Handle
+				withHandle
+				class="bg-snip-border [&>div]:h-10 [&>div]:w-[5px] [&>div]:rounded-full [&>div]:bg-white/20 hover:[&>div]:bg-white/40 [&>div]:transition-colors"
+			/>
 
-					<Resizable.Pane defaultSize={68.75} minSize={40}>
+			<Resizable.Pane defaultSize={68.75} minSize={40}>
+				<Resizable.PaneGroup direction="vertical" class="h-full min-w-0">
+					<Resizable.Pane defaultSize={75} minSize={35}>
 						<main
 							class="relative flex h-full min-w-0 flex-col overflow-hidden bg-snip-bg"
 						>
 							<VideoPreview />
 						</main>
 					</Resizable.Pane>
-				</Resizable.PaneGroup>
-			</div>
-		</Resizable.Pane>
 
-		<Resizable.Handle
-			withHandle
-			class="bg-snip-border [&[data-direction=vertical]>div]:rotate-0 [&[data-direction=vertical]>div]:h-[5px] [&[data-direction=vertical]>div]:w-10 [&[data-direction=vertical]>div]:rounded-full [&[data-direction=vertical]>div]:bg-white/20 hover:[&[data-direction=vertical]>div]:bg-white/40 [&[data-direction=vertical]>div]:transition-colors"
-		/>
+					<Resizable.Handle
+						withHandle
+						class="bg-snip-border [&[data-direction=vertical]>div]:rotate-0 [&[data-direction=vertical]>div]:h-[5px] [&[data-direction=vertical]>div]:w-10 [&[data-direction=vertical]>div]:rounded-full [&[data-direction=vertical]>div]:bg-white/20 hover:[&[data-direction=vertical]>div]:bg-white/40 [&[data-direction=vertical]>div]:transition-colors"
+					/>
 
-		<Resizable.Pane defaultSize={25} minSize={8} maxSize={50}>
-			<div
-				class="flex h-full flex-col border-t border-snip-border/50 bg-snip-surface shadow-[0_-2px_8px_rgba(0,0,0,0.3)]"
-			>
+					<Resizable.Pane defaultSize={25} minSize={8} maxSize={50}>
+						<div
+							class="flex h-full min-w-0 flex-col border-t border-snip-border/50 bg-snip-surface shadow-[0_-2px_8px_rgba(0,0,0,0.3)]"
+						>
 				<!-- Minimal header -->
 				<div
 					class="flex h-7 shrink-0 items-center justify-between border-b border-snip-border px-4"
@@ -487,9 +480,12 @@
 						</div>
 					{/if}
 				</div>
-			</div>
-		</Resizable.Pane>
-	</Resizable.PaneGroup>
+						</div>
+					</Resizable.Pane>
+				</Resizable.PaneGroup>
+			</Resizable.Pane>
+		</Resizable.PaneGroup>
+	</div>
 </div>
 
 <Dialog.Root bind:open={showStatsDialog}>
