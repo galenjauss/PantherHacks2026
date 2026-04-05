@@ -187,17 +187,25 @@
 		return ((ms - trimTimelineStartMs) / trimTimelineDurationMs) * 100;
 	}
 
-	let trimTickMarks = $derived.by(() =>
-		Array.from({ length: 7 }, (_, index) => {
-			const ratio = index / 6;
-			const timeMs = trimTimelineStartMs + trimTimelineDurationMs * ratio;
-			return {
-				id: `tick-${index}`,
-				leftPct: ratio * 100,
-				label: formatPreviewTimestamp(timeMs),
-			};
-		}),
-	);
+	const TICK_INTERVAL_MS = 50;
+
+	let trimTickMarks = $derived.by(() => {
+		const firstTick = Math.ceil(trimTimelineStartMs / TICK_INTERVAL_MS) * TICK_INTERVAL_MS;
+		const marks: Array<{ id: string; leftPct: number; label: string; isMajor: boolean }> = [];
+
+		for (let timeMs = firstTick; timeMs <= trimTimelineEndMs; timeMs += TICK_INTERVAL_MS) {
+			const leftPct = ((timeMs - trimTimelineStartMs) / trimTimelineDurationMs) * 100;
+			const isMajor = timeMs % 500 === 0;
+			marks.push({
+				id: `tick-${timeMs}`,
+				leftPct,
+				label: isMajor ? formatPreviewTimestamp(timeMs) : "",
+				isMajor,
+			});
+		}
+
+		return marks;
+	});
 
 	let activeTrimWordMarkers = $derived.by(() => {
 		if (!activeTrimDialogVariant) return [];
@@ -275,6 +283,25 @@
 		);
 	}
 
+	function seekTrimBarFromClientX(clientX: number) {
+		if (!trimBarEl || !activeTrimDialogVariant) return;
+		const rect = trimBarEl.getBoundingClientRect();
+		if (rect.width <= 0) return;
+		const ratio = clampMs((clientX - rect.left) / rect.width, 0, 1);
+		const timeMs = trimTimelineStartMs + trimTimelineDurationMs * ratio;
+		trimPreviewCurrentTime = clampMs(timeMs, trimTimelineStartMs, trimTimelineEndMs) / 1000;
+		trimPreviewPaused = true;
+	}
+
+	let trimScrubbing = $state(false);
+
+	function onTrimBarPointerDown(event: PointerEvent) {
+		if (trimHandleDrag) return;
+		event.preventDefault();
+		trimScrubbing = true;
+		seekTrimBarFromClientX(event.clientX);
+	}
+
 	function beginTrimHandleDrag(handle: "start" | "end", event: PointerEvent) {
 		event.preventDefault();
 		event.stopPropagation();
@@ -283,12 +310,16 @@
 	}
 
 	function onTrimBarPointerMove(event: PointerEvent) {
-		if (!trimHandleDrag) return;
-		updateTrimFromClientX(event.clientX);
+		if (trimHandleDrag) {
+			updateTrimFromClientX(event.clientX);
+		} else if (trimScrubbing) {
+			seekTrimBarFromClientX(event.clientX);
+		}
 	}
 
 	function endTrimHandleDrag() {
 		trimHandleDrag = null;
+		trimScrubbing = false;
 	}
 
 	let hoveredBeatId = $state<string | null>(null);
@@ -779,106 +810,118 @@
 					</div>
 				{/if}
 
-				<div class="space-y-3 rounded-xl border border-snip-border/50 bg-snip-bg/45 p-4">
-					<div class="flex items-center justify-between gap-3">
-						<div>
-							<p class="text-sm font-medium text-white">Trim range</p>
-							<p class="text-[11px] text-snip-text-muted">
-								Word markers show where each spoken word lands in this take.
-							</p>
-						</div>
-						<div class="flex items-center gap-2 font-mono text-[11px] tabular-nums">
-							<span class={cn(
-								"rounded-full border px-2 py-1",
-								activeTrim.startOffsetMs !== 0
-									? "border-primary/40 bg-primary/10 text-primary"
-									: "border-snip-border bg-snip-surface text-snip-text-muted"
-							)}>
-								In {formatOffset(activeTrim.startOffsetMs)}
-							</span>
-							<span class={cn(
-								"rounded-full border px-2 py-1",
-								activeTrim.endOffsetMs !== 0
-									? "border-primary/40 bg-primary/10 text-primary"
-									: "border-snip-border bg-snip-surface text-snip-text-muted"
-							)}>
-								Out {formatOffset(activeTrim.endOffsetMs)}
-							</span>
-						</div>
-					</div>
-
-					<div class="relative h-10 overflow-hidden rounded-md border border-snip-border/40 bg-snip-surface/70 px-2">
-						{#each activeTrimWordMarkers as marker, index (marker.id)}
+				<div class="space-y-1.5 rounded-xl border border-snip-border/50 bg-snip-bg/45 p-4">
+					<!-- Time ruler -->
+					<div class="relative h-5 select-none">
+						{#each trimTickMarks as tick (tick.id)}
 							<div
-								class="absolute bottom-1 flex -translate-x-1/2 flex-col items-center"
-								style={`left:${marker.leftPct}%;`}
-								title={`${marker.text} (${formatPreviewTimestamp(marker.startMs)})`}
+								class="absolute bottom-0 -translate-x-1/2"
+								style={`left:${tick.leftPct}%;`}
 							>
-								<div class="h-3 w-px bg-primary/45"></div>
-								<span class={`max-w-[72px] truncate font-mono text-[9px] leading-none ${index % 2 === 0 ? "text-snip-text-muted" : "text-snip-text-secondary"}`}>
-									{marker.text}
-								</span>
+								<div class="flex flex-col items-center">
+									{#if tick.isMajor}
+										<span class="mb-0.5 font-mono text-[8px] leading-none text-snip-text-muted">
+											{tick.label}
+										</span>
+										<div class="h-2 w-px bg-snip-border/70"></div>
+									{:else}
+										<div class="h-1 w-px bg-snip-border/35"></div>
+									{/if}
+								</div>
 							</div>
 						{/each}
 					</div>
 
-					<div class="space-y-2">
+					<!-- Unified NLE-style trim bar -->
+					<!-- svelte-ignore a11y_no_static_element_interactions -->
+					<div
+						bind:this={trimBarEl}
+						class="relative h-16 cursor-pointer touch-none select-none overflow-hidden rounded-lg border border-snip-border/30"
+						style="background: rgba(255,255,255,0.03);"
+						onpointerdown={onTrimBarPointerDown}
+					>
+						<!-- Active trimmed region -->
 						<div
-							bind:this={trimBarEl}
-							class="relative h-14 touch-none"
+							class="absolute inset-y-0 border-y-2 border-primary/40 bg-primary/[0.12]"
+							style={`left:${trimStartPct}%; width:${Math.max(trimEndPct - trimStartPct, 0)}%;`}
+						></div>
+
+						<!-- Dimmed overlay: before trim -->
+						<div
+							class="absolute inset-y-0 left-0 bg-black/40"
+							style={`width:${trimStartPct}%;`}
+						></div>
+						<!-- Dimmed overlay: after trim -->
+						<div
+							class="absolute inset-y-0 bg-black/40"
+							style={`left:${trimEndPct}%; right:0;`}
+						></div>
+
+						<!-- Word markers -->
+						{#each activeTrimWordMarkers as marker (marker.id)}
+							<div
+								class="absolute bottom-0 z-10 -translate-x-1/2"
+								style={`left:${marker.leftPct}%;`}
+								title={`${marker.text} (${formatPreviewTimestamp(marker.startMs)})`}
+							>
+								<div class="h-3 w-px bg-primary/25"></div>
+							</div>
+						{/each}
+
+						<!-- Left trim handle -->
+						<div
+							class="absolute inset-y-0 z-20 flex w-[10px] cursor-ew-resize items-center justify-center rounded-l-[5px] bg-primary shadow-[2px_0_8px_rgba(0,0,0,0.3)] transition-colors hover:brightness-110"
+							style={`left:${trimStartPct}%;`}
+							role="slider"
+							aria-label="Trim start"
+							aria-valuemin={trimTimelineStartMs}
+							aria-valuemax={activeTrimEndMs}
+							aria-valuenow={activeTrimStartMs}
+							tabindex="0"
+							onpointerdown={(event) => beginTrimHandleDrag("start", event)}
 						>
-							<div class="absolute top-6 right-0 left-0 h-1 rounded-full bg-snip-border/70"></div>
-							<div
-								class="absolute top-6 h-1 rounded-full bg-primary shadow-[0_0_16px_var(--primary)]"
-								style={`left:${trimStartPct}%; width:${Math.max(trimEndPct - trimStartPct, 0)}%;`}
-							></div>
-							<div
-								class="absolute top-4 h-5 w-3 -translate-x-1/2 cursor-ew-resize rounded-full border border-white/20 bg-primary shadow-[0_0_0_2px_#111111]"
-								style={`left:${trimStartPct}%;`}
-								role="slider"
-								aria-label="Trim start"
-								aria-valuemin={trimTimelineStartMs}
-								aria-valuemax={activeTrimEndMs}
-								aria-valuenow={activeTrimStartMs}
-								tabindex="0"
-								onpointerdown={(event) => beginTrimHandleDrag("start", event)}
-							></div>
-							<div
-								class="absolute top-4 h-5 w-3 -translate-x-1/2 cursor-ew-resize rounded-full border border-white/20 bg-primary shadow-[0_0_0_2px_#111111]"
-								style={`left:${trimEndPct}%;`}
-								role="slider"
-								aria-label="Trim end"
-								aria-valuemin={activeTrimStartMs}
-								aria-valuemax={trimTimelineEndMs}
-								aria-valuenow={activeTrimEndMs}
-								tabindex="0"
-								onpointerdown={(event) => beginTrimHandleDrag("end", event)}
-							></div>
-							<div
-								class="pointer-events-none absolute top-1 h-10 w-px -translate-x-1/2 bg-white/40"
-								style={`left:${timeToPct(trimPreviewCurrentTime * 1000)}%;`}
-							></div>
+							<div class="flex flex-col gap-[3px]">
+								<div class="h-px w-[5px] rounded-full bg-white/60"></div>
+								<div class="h-px w-[5px] rounded-full bg-white/60"></div>
+								<div class="h-px w-[5px] rounded-full bg-white/60"></div>
+							</div>
 						</div>
 
-						<div class="relative h-5">
-							{#each trimTickMarks as tick (tick.id)}
-								<div
-									class="absolute flex -translate-x-1/2 flex-col items-center gap-1"
-									style={`left:${tick.leftPct}%;`}
-								>
-									<div class="h-2 w-px bg-snip-border"></div>
-									<span class="font-mono text-[9px] text-snip-text-muted">
-										{tick.label}
-									</span>
-								</div>
-							{/each}
+						<!-- Right trim handle -->
+						<div
+							class="absolute inset-y-0 z-20 flex w-[10px] -translate-x-full cursor-ew-resize items-center justify-center rounded-r-[5px] bg-primary shadow-[-2px_0_8px_rgba(0,0,0,0.3)] transition-colors hover:brightness-110"
+							style={`left:${trimEndPct}%;`}
+							role="slider"
+							aria-label="Trim end"
+							aria-valuemin={activeTrimStartMs}
+							aria-valuemax={trimTimelineEndMs}
+							aria-valuenow={activeTrimEndMs}
+							tabindex="0"
+							onpointerdown={(event) => beginTrimHandleDrag("end", event)}
+						>
+							<div class="flex flex-col gap-[3px]">
+								<div class="h-px w-[5px] rounded-full bg-white/60"></div>
+								<div class="h-px w-[5px] rounded-full bg-white/60"></div>
+								<div class="h-px w-[5px] rounded-full bg-white/60"></div>
+							</div>
+						</div>
+
+						<!-- Playhead -->
+						<div
+							class="pointer-events-none absolute inset-y-0 z-30 w-px -translate-x-1/2 bg-white/70 shadow-[0_0_6px_rgba(255,255,255,0.3)]"
+							style={`left:${timeToPct(trimPreviewCurrentTime * 1000)}%;`}
+						>
+							<div class="absolute -top-px left-1/2 -translate-x-1/2">
+								<div class="size-1.5 rounded-full bg-white"></div>
+							</div>
 						</div>
 					</div>
 
-					<div class="flex items-center justify-between font-mono text-[11px] tabular-nums text-snip-text-secondary">
-						<span>In {formatPreviewTimestamp(activeTrimStartMs)}</span>
-						<span>{formatDuration(Math.max(activeTrimEndMs - activeTrimStartMs, 0))}</span>
-						<span>Out {formatPreviewTimestamp(activeTrimEndMs)}</span>
+					<!-- Bottom timestamps -->
+					<div class="flex items-center justify-between px-0.5 font-mono text-[10px] tabular-nums">
+						<span class="text-snip-text-secondary">{formatPreviewTimestamp(activeTrimStartMs)}</span>
+						<span class="text-snip-text-muted">{formatDuration(Math.max(activeTrimEndMs - activeTrimStartMs, 0))}</span>
+						<span class="text-snip-text-secondary">{formatPreviewTimestamp(activeTrimEndMs)}</span>
 					</div>
 				</div>
 			</div>
