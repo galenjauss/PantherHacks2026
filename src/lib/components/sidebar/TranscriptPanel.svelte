@@ -148,7 +148,8 @@
 			const durMs = Math.round(
 				chip.words.reduce((s, w) => s + (w.end - w.start), 0),
 			);
-			return `[${durMs} ms pause]`;
+			return `[${(durMs / 1000).toFixed(1)}s pause]`;
+
 		}
 		return chip.words.map((w) => w.text).join(" ");
 	}
