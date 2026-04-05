@@ -1877,11 +1877,16 @@ class VideoEditorState {
 
 		if (segments.length === 0) return;
 
-		const startSegmentIndex = segments.findIndex((segment) => this.currentTimeMs < segment.end);
-		if (startSegmentIndex < 0) return;
+		let startSegmentIndex = segments.findIndex((segment) => this.currentTimeMs < segment.end);
+		// After the last segment finishes, currentTime sits at/past the final end and
+		// findIndex returns -1 — treat that as "play from the top" like a normal replay.
+		const replayFromStart = startSegmentIndex < 0;
+		if (replayFromStart) startSegmentIndex = 0;
 
 		const startSegment = segments[startSegmentIndex];
-		const startTimeMs = clamp(this.currentTimeMs, startSegment.start, startSegment.end);
+		const startTimeMs = replayFromStart
+			? startSegment.start
+			: clamp(this.currentTimeMs, startSegment.start, startSegment.end);
 
 		this.isPreviewPlaying = true;
 		this.currentPreviewSegmentIndex = startSegmentIndex;
