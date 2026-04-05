@@ -13,6 +13,7 @@
 	import VideoPreview from "$lib/components/main/VideoPreview.svelte";
 	import * as Dialog from "$lib/components/ui/dialog";
 	import ClipTreeTimeline from "$lib/components/main/ClipTreeTimeline.svelte";
+	import TimelineScrubber from "$lib/components/main/TimelineScrubber.svelte";
 	import { videoEditorState as editor } from "$lib/stores/video-editor.svelte";
 
 	let sidebarTab = $state<"transcript" | "script" | "cuts" | "settings">("transcript");
@@ -42,17 +43,6 @@
 		if (file) await editor.setFile(file);
 	}
 
-	const legend = [
-		{ color: "#22c55e", label: "keep" },
-		{ color: "#ef4444", label: "filler" },
-		{ color: "#6b7280", label: "pause" },
-		{ color: "#3b82f6", label: "retake" }
-	] as const;
-	const beatStripLegend = [
-		{ color: "#7c3aed", label: "kept beat" },
-		{ color: "#ef4444", label: "cut" },
-		{ color: "#1a1a1a", border: "#2a2a2a", label: "gap" }
-	] as const;
 	const skeletonWidths = [7, 5, 9, 6, 8, 10, 4, 12, 6, 11, 8];
 
 	$effect(() => {
@@ -292,79 +282,33 @@
 				<div class="relative flex min-h-0 flex-1 flex-col overflow-hidden">
 					{#if editor.clipStripBeatBlocks.length > 0}
 						{@const timelineBlocks = editor.previewMode === "before" ? editor.beforeTimelineBlocks : editor.editedTimelineBlocks}
-						{@const labels = editor.timelineLabels}
 
-						<!-- Time ruler -->
-						<div class="relative mx-4 mt-2 h-4 shrink-0">
-							{#each labels as tick, i (tick.id)}
-								<div
-									class="absolute top-0 flex flex-col items-center"
-									style="left:{(i / (labels.length - 1)) * 100}%;transform:translateX({i === 0 ? '0' : i === labels.length - 1 ? '-100%' : '-50%'});"
-								>
-									<div class="h-[5px] w-px bg-snip-text-muted/40"></div>
-									<span class="mt-px font-mono text-[8px] tabular-nums text-snip-text-muted">{tick.label}</span>
-								</div>
-							{/each}
-							<!-- Minor ticks between labels -->
-							{#each Array.from({ length: (labels.length - 1) * 2 }) as _, midIdx (`mid-${midIdx}`)}
-								{@const pos = ((midIdx + 0.5) / ((labels.length - 1) * 2)) * 100}
-								<div
-									class="absolute top-0 h-[3px] w-px bg-snip-text-muted/20"
-									style="left:{pos}%;"
-								></div>
-							{/each}
-						</div>
-
-						<!-- Timeline bar -->
-						<div class="mx-4 flex h-7 items-stretch gap-px overflow-hidden rounded-t">
-							{#each timelineBlocks as block (block.id)}
-								{#if block.kind === "beat"}
-									<button
-										type="button"
-										class="group relative flex items-center overflow-hidden transition-all duration-400 ease-[cubic-bezier(0.25,1,0.5,1)] hover:opacity-90"
-										style="width:{block.widthPct}%;background:{block.color}33;border-bottom:2px solid {block.color};"
-										onclick={() => editor.seekTo(block.startMs)}
-										title="{block.humanLabel}: {block.label}"
-									>
-										{#if block.widthPct > 6}
-											<span
-												class="truncate px-2 text-[10px] font-medium"
-												style="color:{block.color};"
-											>
-												{block.label}
-											</span>
-										{/if}
-									</button>
-								{:else if block.kind === "cut"}
-									<div
-										class="relative flex items-center justify-center opacity-50"
-										style="width:{block.widthPct}%;background:repeating-linear-gradient(
-											-45deg,
-											#ef444425,
-											#ef444425 2px,
-											#ef444408 2px,
-											#ef444408 5px
-										);border-bottom:2px solid #ef444488;"
-										title="Cut: {block.label} ({editor.formatSegmentDuration(block.durationMs)})"
-									>
-										{#if block.widthPct > 5}
-											<span class="truncate px-1 text-[8px] font-medium text-[#ef4444]">
-												{block.label}
-											</span>
-										{/if}
-									</div>
-								{:else}
-									<div
-										class="opacity-40"
-										style="width:{block.widthPct}%;background:#1a1a1a;border-bottom:2px solid #2a2a2a;"
-									></div>
-								{/if}
-							{/each}
+						<!-- Scrubber -->
+						<div class="mt-2 shrink-0">
+							<TimelineScrubber
+								currentTimeMs={editor.currentTimeMs}
+								totalDurationMs={editor.totalDurationMs}
+								beatRegions={timelineBlocks
+									.filter((b) => b.kind === "beat")
+									.map((b) => {
+										const block = editor.clipStripBeatBlocks.find((bb) => bb.beatId === b.beatId);
+										const selected = block?.variants.find((v) => v.isSelected);
+										return {
+											startMs: b.startMs,
+											endMs: b.startMs + b.durationMs,
+											color: b.color,
+											previewText: selected?.previewText ?? block?.variants[0]?.previewText ?? ""
+										};
+									})}
+								formatClock={editor.formatClock.bind(editor)}
+								onSeek={(ms) => editor.seekTo(ms)}
+							/>
 						</div>
 
 						<!-- Slot selectors (tree timeline) -->
 						<ClipTreeTimeline
 							blocks={editor.clipStripBeatBlocks}
+							currentTimeMs={editor.currentTimeMs}
 							formatDuration={editor.formatSegmentDuration.bind(editor)}
 							onSelectVariant={(slotId, variantId, startMs) => {
 								editor.selectSlotVariant(slotId, variantId);
@@ -373,19 +317,17 @@
 						/>
 
 					{:else if editor.clipStripSegments.length > 0}
-						{@const labels = editor.timelineLabels}
-
-						<!-- Time ruler for segment view -->
-						<div class="relative mx-4 mt-2 h-4 shrink-0">
-							{#each labels as tick, i (tick.id)}
-								<div
-									class="absolute top-0 flex flex-col items-center"
-									style="left:{(i / (labels.length - 1)) * 100}%;transform:translateX({i === 0 ? '0' : i === labels.length - 1 ? '-100%' : '-50%'});"
-								>
-									<div class="h-[5px] w-px bg-snip-text-muted/40"></div>
-									<span class="mt-px font-mono text-[8px] tabular-nums text-snip-text-muted">{tick.label}</span>
-								</div>
-							{/each}
+						<!-- Scrubber for segment view -->
+						<div class="mt-2 shrink-0">
+							<TimelineScrubber
+								currentTimeMs={editor.currentTimeMs}
+								totalDurationMs={editor.totalDurationMs}
+								beatRegions={editor.clipStripSegments
+									.filter((s) => s.type === "good")
+									.map((s) => ({ startMs: s.start, endMs: s.end, color: "#22c55e" }))}
+								formatClock={editor.formatClock.bind(editor)}
+								onSeek={(ms) => editor.seekTo(ms)}
+							/>
 						</div>
 
 						<!-- Segment bar -->

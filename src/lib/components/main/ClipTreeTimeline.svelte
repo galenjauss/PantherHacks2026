@@ -3,11 +3,12 @@
 
 	interface Props {
 		blocks: EditorClipStripBeatBlock[];
+		currentTimeMs: number;
 		formatDuration: (ms: number) => string;
 		onSelectVariant: (slotId: string, variantId: string, startMs: number) => void;
 	}
 
-	let { blocks, formatDuration, onSelectVariant }: Props = $props();
+	let { blocks, currentTimeMs, formatDuration, onSelectVariant }: Props = $props();
 
 	// --- DOM refs ---
 	let containerEl = $state<HTMLDivElement | null>(null);
@@ -25,26 +26,23 @@
 		};
 	}
 
-	// --- Line computation ---
-	interface TreeLine {
+	// --- Curve computation ---
+	interface TreeCurve {
 		key: string;
-		x1: number;
-		y1: number;
-		x2: number;
-		y2: number;
+		d: string;
 		active: boolean;
 	}
 
 	import { tick } from "svelte";
 
-	let lines = $derived.by((): TreeLine[] => {
+	let curves = $derived.by((): TreeCurve[] => {
 		void resizeGen;
 		if (!containerEl || blocks.length < 2) return [];
 
 		const containerRect = containerEl.getBoundingClientRect();
 		const scrollLeft = containerEl.scrollLeft;
 		const scrollTop = containerEl.scrollTop;
-		const result: TreeLine[] = [];
+		const result: TreeCurve[] = [];
 
 		for (let i = 0; i < blocks.length - 1; i++) {
 			const leftBlock = blocks[i];
@@ -64,12 +62,21 @@
 					const x2 = rRect.left - containerRect.left + scrollLeft;
 					const y2 = rRect.top + rRect.height / 2 - containerRect.top + scrollTop;
 
+					// Pull endpoints inward so arrowheads aren't clipped by z-20 buttons
+					const ax1 = x1 + 4;
+					const ax2 = x2 - 8;
+					const midX = (ax1 + ax2) / 2;
+
+					const sameLevel = Math.abs(y1 - y2) < 6;
+
+					// Straight line for same-level, cubic bezier for different levels
+					const d = sameLevel
+						? `M ${ax1},${y1} L ${ax2},${y2}`
+						: `M ${ax1},${y1} C ${midX},${y1} ${midX},${y2} ${ax2},${y2}`;
+
 					result.push({
 						key: `${lv.id}--${rv.id}`,
-						x1,
-						y1,
-						x2,
-						y2,
+						d,
 						active: lv.isSelected && rv.isSelected
 					});
 				}
@@ -104,6 +111,23 @@
 		});
 	});
 
+	// --- Hover tooltip state ---
+	let hoveredBlockId = $state<string | null>(null);
+
+	function handleBlockMouseEnter(blockId: string) {
+		hoveredBlockId = blockId;
+	}
+
+	function handleBlockMouseLeave() {
+		hoveredBlockId = null;
+	}
+
+	function getBlockTooltipText(block: EditorClipStripBeatBlock): string {
+		const selected = block.variants.find((v) => v.isSelected);
+		const text = selected?.previewText ?? block.variants[0]?.previewText ?? "";
+		return text.length > 200 ? text.slice(0, 197) + "..." : text;
+	}
+
 	// Recompute on scroll
 	$effect(() => {
 		if (!containerEl) return;
@@ -118,10 +142,10 @@
 
 <div
 	bind:this={containerEl}
-	class="relative mx-4 mt-px flex min-h-0 flex-1 items-start gap-1 overflow-x-auto pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+	class="relative mx-4 mt-px flex min-h-0 flex-1 items-center gap-8 overflow-x-auto px-4 py-4 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
 >
 	<!-- SVG line overlay -->
-	<svg class="pointer-events-none absolute inset-0 z-10 h-full w-full overflow-visible">
+	<svg class="pointer-events-none absolute inset-0 z-30 h-full w-full overflow-visible">
 		<defs>
 			<filter id="active-glow">
 				<feGaussianBlur stdDeviation="2" result="blur" />
@@ -130,17 +154,38 @@
 					<feMergeNode in="SourceGraphic" />
 				</feMerge>
 			</filter>
+			<marker
+				id="arrow-active"
+				viewBox="0 0 6 6"
+				refX="5"
+				refY="3"
+				markerWidth="5"
+				markerHeight="5"
+				orient="auto-start-reverse"
+			>
+				<path d="M 0 0.5 L 5 3 L 0 5.5 z" fill="var(--primary)" />
+			</marker>
+			<marker
+				id="arrow-inactive"
+				viewBox="0 0 6 6"
+				refX="5"
+				refY="3"
+				markerWidth="5"
+				markerHeight="5"
+				orient="auto-start-reverse"
+			>
+				<path d="M 0 0.5 L 5 3 L 0 5.5 z" fill="var(--snip-border)" opacity="0.6" />
+			</marker>
 		</defs>
-		{#each lines as line (line.key)}
-			<line
-				x1={line.x1}
-				y1={line.y1}
-				x2={line.x2}
-				y2={line.y2}
-				stroke={line.active ? "var(--primary)" : "var(--snip-border)"}
-				stroke-width={line.active ? 2 : 1}
-				stroke-opacity={line.active ? 0.9 : 0.12}
-				filter={line.active ? "url(#active-glow)" : "none"}
+		{#each curves as curve (curve.key)}
+			<path
+				d={curve.d}
+				fill="none"
+				stroke={curve.active ? "var(--primary)" : "var(--snip-border)"}
+				stroke-width={curve.active ? 2 : 1.5}
+				stroke-opacity={curve.active ? 0.9 : 0.3}
+				filter={curve.active ? "url(#active-glow)" : "none"}
+				marker-end={curve.active ? "url(#arrow-active)" : "url(#arrow-inactive)"}
 				style="transition: stroke-opacity 300ms ease, stroke-width 300ms ease, stroke 300ms ease;"
 			/>
 		{/each}
@@ -148,34 +193,62 @@
 
 	<!-- Variant columns -->
 	{#each blocks as block (block.id)}
-		<div class="flex min-w-[90px] flex-col gap-0.5" style="width:{block.widthPct}%;">
-			<span
-				class="truncate px-1 pt-1 font-mono text-[8px] uppercase tracking-[0.15em] text-snip-text-muted"
-			>
-				{block.beatId.replace(/^slot_/, "S")}
-			</span>
+		{@const isPlaying = currentTimeMs >= block.startMs && currentTimeMs < block.endMs}
+		<!-- svelte-ignore a11y_no_static_element_interactions -->
+		<div
+			class="relative flex min-w-[140px] shrink-0 flex-col gap-2 rounded-sm px-2 py-2 transition-colors duration-300
+				{isPlaying ? 'bg-primary/5 ring-1 ring-primary/30' : ''}"
+			onmouseenter={() => handleBlockMouseEnter(block.id)}
+			onmouseleave={handleBlockMouseLeave}
+		>
+			<!-- Fixed tooltip above block -->
+			{#if hoveredBlockId === block.id}
+				{@const tipText = getBlockTooltipText(block)}
+				{#if tipText}
+					<div
+						class="pointer-events-none absolute bottom-full left-1/2 z-40 mb-2 max-w-[240px] -translate-x-1/2 rounded-sm border border-snip-border bg-snip-surface px-3 py-2 text-[11px] leading-relaxed text-snip-text-secondary shadow-lg"
+					>
+						{tipText}
+					</div>
+				{/if}
+			{/if}
+
+			<div class="flex flex-col gap-0.5 px-0.5">
+				<div class="flex items-center gap-1.5">
+					<div
+						class="size-2 shrink-0 rounded-full"
+						style="background:{block.color};"
+					></div>
+					<span class="truncate text-[10px] font-medium text-snip-text-secondary">
+						{block.humanLabel}
+					</span>
+				</div>
+				<span class="font-mono text-[8px] tabular-nums text-snip-text-muted">
+					{formatDuration(block.startMs)} – {formatDuration(block.endMs)}
+				</span>
+			</div>
 			{#each block.variants as variant, takeIdx (variant.id)}
 				<button
 					type="button"
 					use:trackEl={variant.id}
-					class="relative z-20 flex items-center justify-between gap-1 overflow-hidden border px-2 py-[3px] text-left transition-colors hover:border-primary/60 {variant.isSelected
+					class="relative z-20 flex items-center justify-between gap-2 overflow-hidden rounded-sm border px-3 py-2 text-left transition-colors hover:border-primary/60 {variant.isSelected
 						? 'border-primary bg-primary/10'
 						: 'border-snip-border bg-snip-surface'}"
-					style="border-radius:4px;"
 					onclick={() => onSelectVariant(block.beatId, variant.variantId, variant.start)}
 				>
 					<span
-						class="truncate text-[10px] {variant.isSelected
+						class="truncate text-xs {variant.isSelected
 							? 'font-medium text-white'
 							: 'text-snip-text-secondary'}"
 					>
 						Take {takeIdx + 1}
 					</span>
-					<span class="shrink-0 font-mono text-[9px] text-snip-text-muted">
+					<span class="shrink-0 font-mono text-[10px] text-snip-text-muted">
 						{formatDuration(variant.durationMs)}
 					</span>
 				</button>
 			{/each}
 		</div>
 	{/each}
+
 </div>

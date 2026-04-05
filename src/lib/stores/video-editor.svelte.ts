@@ -65,8 +65,12 @@ export interface EditorClipStripBeatBlock {
 	beatId: string;
 	widthPct: number;
 	activeLabel: string;
+	color: string;
+	humanLabel: string;
+	startMs: number;
+	endMs: number;
 	variants: Array<
-		Pick<EditorBeatVariant, "id" | "variantId" | "label" | "durationMs" | "start"> & {
+		Pick<EditorBeatVariant, "id" | "variantId" | "label" | "durationMs" | "start" | "previewText"> & {
 			kind: EditorBeatVariant["status"];
 			isSelected: boolean;
 			fillPct: number;
@@ -961,15 +965,21 @@ class VideoEditorState {
 
 		if (beatGroups.length === 0) return [];
 
-		const blocks = beatGroups.map((group) => {
+		const blocks = beatGroups.map((group, index) => {
 			const selectedVariant = this.selectedVariantForGroup(group);
 			const maxDurationMs = Math.max(...group.variants.map((variant) => variant.durationMs), 1);
 			const widthMs = Math.max(maxDurationMs, 600);
+			const startMs = selectedVariant?.start ?? group.variants[0]?.start ?? 0;
+			const endMs = startMs + (selectedVariant?.durationMs ?? group.variants[0]?.durationMs ?? 0);
 
 			return {
 				id: group.slotId,
 				beatId: group.slotId,
 				activeLabel: selectedVariant?.label ?? "",
+				color: BEAT_COLORS[index % BEAT_COLORS.length],
+				humanLabel: humanizeSlotId(group.slotId),
+				startMs,
+				endMs,
 				widthMs,
 				variants: group.variants.map((variant) => ({
 					id: variant.id,
@@ -978,6 +988,7 @@ class VideoEditorState {
 					kind: variant.status,
 					durationMs: variant.durationMs,
 					start: variant.start,
+					previewText: variant.previewText,
 					isSelected: selectedVariant?.variantId === variant.variantId,
 					fillPct: clamp(Math.round((variant.durationMs / maxDurationMs) * 100), 18, 100)
 				}))
@@ -1167,6 +1178,7 @@ class VideoEditorState {
 				id: segmentId(index),
 				type: segment.category,
 				start: segment.start,
+				end: segment.end,
 				widthPct,
 				label: segment.category === "good" ? null : clipStripLabel(segment)
 			};
