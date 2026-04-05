@@ -453,19 +453,11 @@ class VideoEditorState {
 
 	get workflowSteps(): Array<{ label: string; state: WorkflowStepState; glyph: string }> {
 		const steps = [
-			"uploaded & validated format",
-			this.transcribing && !this.transcriptId
-				? "uploading clip for transcription"
-				: this.pollingTranscript && this.normalizedTranscriptStatus === "queued"
-					? "waiting for transcript generation"
-					: this.transcriptWords.length > 0
-						? "timestamped transcript ready"
-						: "loading transcript timestamps",
-			this.wordLabels.length > 0
-				? "cuts ready from transcript analysis"
-				: "coming up with cuts from the transcript",
-			"syncing the autocut job",
-			"clean preview ready"
+			"Upload & validate format",
+			"Generate transcript",
+			"Analyze & find cuts",
+			"Sync autocut job",
+			"Preview ready"
 		];
 
 		return steps.map((label, index) => {

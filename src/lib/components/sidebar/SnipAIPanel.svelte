@@ -12,7 +12,11 @@
 	<span class="text-[10px] font-semibold uppercase tracking-[0.25em] text-snip-text-muted">Snip AI</span>
 
 	<div class="flex items-center gap-2">
-		<span class="pulse-dot size-[7px] shrink-0 rounded-full bg-primary"></span>
+		{#if editor.isBusy}
+			<span class="spinner size-[14px] flex-shrink-0"></span>
+		{:else}
+			<span class="size-[7px] flex-shrink-0 rounded-full bg-green-500"></span>
+		{/if}
 		<span class="flex-1 text-[13px] font-medium leading-none text-white">{editor.statusLabel}</span>
 		<span class="font-mono text-[12px] tabular-nums text-snip-text-secondary">
 			{Math.min(Math.max(editor.workflowStep, 1), total)} / {total}
@@ -44,25 +48,22 @@
 </div>
 
 <style>
-	.pulse-dot {
-		animation: dot-pulse 1.5s ease-in-out infinite;
+	.spinner {
+		border: 2px solid transparent;
+		border-top-color: #7c3aed;
+		border-right-color: #7c3aed;
+		border-radius: 50%;
+		animation: spin 0.8s linear infinite;
+	}
+
+	@keyframes spin {
+		to {
+			transform: rotate(360deg);
+		}
 	}
 
 	.active-glyph {
 		animation: glyph-pulse 1.5s ease-in-out infinite;
-	}
-
-	@keyframes dot-pulse {
-		0%,
-		100% {
-			opacity: 0.35;
-			transform: scale(0.8);
-		}
-
-		50% {
-			opacity: 1;
-			transform: scale(1);
-		}
 	}
 
 	@keyframes glyph-pulse {
