@@ -243,6 +243,14 @@ function clampSegmentToTrim(
 	return { ...segment, start, end };
 }
 
+function segmentOverlapsTrimWindow(
+	segment: AutocutAnalysisSegment,
+	trimStart: number,
+	trimEnd: number
+): boolean {
+	return segment.end > trimStart && segment.start < trimEnd;
+}
+
 function humanizeId(id: string, prefix: string): string {
 	const num = id.replace(new RegExp(`^${prefix}_`), "");
 	return `${prefix.charAt(0).toUpperCase()}${prefix.slice(1)} ${num}`;
@@ -1155,16 +1163,40 @@ class VideoEditorState {
 
 			const firstIndex = matchingRefIndexes[0];
 			const lastIndex = matchingRefIndexes[matchingRefIndexes.length - 1];
+			const includedRefIndexes = new Set<number>(matchingRefIndexes);
 
-			for (let refIndex = firstIndex; refIndex <= lastIndex; refIndex += 1) {
+			for (let refIndex = firstIndex - 1; refIndex >= 0; refIndex -= 1) {
+				const segment = this.analysisSegments[refIndex];
+				if (!segmentOverlapsTrimWindow(segment, trimmed.start, trimmed.end)) break;
+				includedRefIndexes.add(refIndex);
+			}
+
+			for (let refIndex = lastIndex + 1; refIndex < this.analysisSegments.length; refIndex += 1) {
+				const segment = this.analysisSegments[refIndex];
+				if (!segmentOverlapsTrimWindow(segment, trimmed.start, trimmed.end)) break;
+				includedRefIndexes.add(refIndex);
+			}
+
+			for (const refIndex of [...includedRefIndexes].sort((a, b) => a - b)) {
 				const ref = this.analysisSegmentRefs[refIndex];
 				const segment = this.analysisSegments[refIndex];
 				const id = ref.id;
 				const cutSegment = cutSegmentById.get(id);
+				const isPrimaryVariantSegment = this.segmentMatchesSelectedVariant(
+					segment,
+					group.slotId,
+					variant.variantId
+				);
+				const isExtendedBoundarySegment =
+					!isPrimaryVariantSegment && segmentOverlapsTrimWindow(segment, trimmed.start, trimmed.end);
 
 				if (segment.category === "dead_space") {
-					if (!this.deadSpaceIsSelectedPath(this.analysisSegments, refIndex)) continue;
-					if (cutSegment && this.isCutActive(cutSegment, selected)) continue;
+					if (!isExtendedBoundarySegment && !this.deadSpaceIsSelectedPath(this.analysisSegments, refIndex)) {
+						continue;
+					}
+					if (!isExtendedBoundarySegment && cutSegment && this.isCutActive(cutSegment, selected)) {
+						continue;
+					}
 
 					const clamped = clampSegmentToTrim(segment, trimmed.start, trimmed.end);
 					if (!clamped) continue;
@@ -1176,11 +1208,16 @@ class VideoEditorState {
 					continue;
 				}
 
-				if (!this.segmentMatchesSelectedVariant(segment, group.slotId, variant.variantId)) {
+				if (!isPrimaryVariantSegment && !isExtendedBoundarySegment) {
 					continue;
 				}
 
-				if (segment.category === "filler_words" && cutSegment && this.isCutActive(cutSegment, selected)) {
+				if (
+					isPrimaryVariantSegment &&
+					segment.category === "filler_words" &&
+					cutSegment &&
+					this.isCutActive(cutSegment, selected)
+				) {
 					continue;
 				}
 
