@@ -94,6 +94,10 @@ export interface EditorTranscriptWord {
 	cut: "filler" | "pause" | "restart" | null;
 	keep: boolean;
 	segmentId: string | null;
+	lineLabel: string | null;
+	slotLabel: string | null;
+	playOrder: number | null;
+	showPlayMarker: boolean;
 }
 
 const BEAT_COLORS = [
@@ -813,6 +817,17 @@ class VideoEditorState {
 			return [];
 		}
 
+		const slotMetaById = new Map(
+			this.slotGroups.map((group, index) => [
+				group.slotId,
+				{
+					lineLabel: group.lineLabel,
+					slotLabel: group.slotLabel,
+					playOrder: index + 1
+				}
+			])
+		);
+
 		if (this.analysisSegments.length === 0) {
 			return this.transcriptWords.map((word, index) => ({
 				id: index,
@@ -821,7 +836,11 @@ class VideoEditorState {
 				end: word.end,
 				cut: null,
 				keep: true,
-				segmentId: null
+				segmentId: null,
+				lineLabel: null,
+				slotLabel: null,
+				playOrder: null,
+				showPlayMarker: false
 			}));
 		}
 
@@ -834,6 +853,10 @@ class VideoEditorState {
 			const transcriptSegmentId = this.analysisSegmentRefs[index]?.id ?? segmentId(index);
 			const cutSegment = cutSegmentById.get(transcriptSegmentId);
 			const keep = !cutSegment || !this.isCutActive(cutSegment, selected);
+			const slotMeta =
+				segment.category === "good" && segment.slotId
+					? slotMetaById.get(segment.slotId)
+					: undefined;
 
 			if (segment.category === "dead_space") {
 				words.push({
@@ -843,7 +866,11 @@ class VideoEditorState {
 					end: segment.end,
 					cut: "pause",
 					keep,
-					segmentId: transcriptSegmentId
+					segmentId: transcriptSegmentId,
+					lineLabel: null,
+					slotLabel: null,
+					playOrder: null,
+					showPlayMarker: false
 				});
 				continue;
 			}
@@ -868,7 +895,11 @@ class VideoEditorState {
 								? "restart"
 								: null,
 					keep,
-					segmentId: cutSegment ? transcriptSegmentId : null
+					segmentId: cutSegment ? transcriptSegmentId : null,
+					lineLabel: slotMeta?.lineLabel ?? null,
+					slotLabel: slotMeta?.slotLabel ?? null,
+					playOrder: slotMeta?.playOrder ?? null,
+					showPlayMarker: Boolean(slotMeta && wordIndex === startIndex)
 				});
 			}
 		}
