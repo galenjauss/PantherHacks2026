@@ -130,13 +130,13 @@
 
 					<div class="snip-cut-line"></div>
 				</div>
-				<div class="absolute left-[20%] top-[33%] rotate-155">
+				<div class="absolute left-[21%] top-[36%] rotate-162">
 					<div class="relative">
 						<div
 							class="absolute inset-0 rounded-full bg-primary/25 blur-2xl"
 						></div>
 						<div
-							class="relative flex size-23 items-center justify-center rounded-full bg-[linear-gradient(145deg,#bb6cff,#7c3aed)] text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.28),0_20px_36px_rgba(124,58,237,0.28)]"
+							class="relative flex size-22 items-center justify-center rounded-full bg-[linear-gradient(145deg,#bb6cff,#7c3aed)] text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.28),0_20px_36px_rgba(124,58,237,0.28)]"
 						>
 							<ScissorsIcon class="size-12" stroke-width={2.4} />
 						</div>
@@ -157,14 +157,11 @@
 					<ScissorsIcon class="size-5" />
 				</div>
 				<div>
-					<p
-						class="font-display text-sm font-bold tracking-[0.18em] text-white uppercase"
-					>
-						Snip
-					</p>
-					<p class="font-display text-xs text-snip-text-secondary">
-						Transcript-first cleanup
-					</p>
+						<p
+							class="font-display text-md font-bold tracking-wider text-white uppercase"
+						>
+							Snip
+						</p>
 				</div>
 			</div>
 		</header>
@@ -190,7 +187,7 @@
 				</h1>
 
 				<p
-					class="mt-6 max-w-2xl text-lg leading-8 text-snip-text-secondary"
+					class="mt-12 max-w-2xl text-lg leading-8 text-snip-text-secondary"
 				>
 					Snip reads the transcript, marks filler words, long pauses,
 					and retakes, then surfaces exact timestamps so you can jump
@@ -251,7 +248,7 @@
 						Use an example video.
 					</button>
 
-					<p class="mt-10 text-sm text-snip-text-secondary">
+					<p class="mt-7 text-sm text-snip-text-secondary">
 						Drag and drop audio or video, or click to upload
 					</p>
 				</div>
@@ -262,20 +259,17 @@
 			<div
 				class="mx-auto grid max-w-6xl gap-8 lg:grid-cols-[minmax(0,1.1fr)_minmax(320px,0.9fr)]"
 			>
-				<div class="space-y-4">
+				<div class="mt-20 space-y-4">
 
 					<h2
 						class="max-w-xl text-3xl leading-[1.31] font-semibold tracking-tight text-white sm:text-4xl"
 					>
-						See the cut happen before we wire up the full demo flow
+						See snip in action.
 					</h2>
 					<p
 						class="max-w-xl text-base leading-7 text-snip-text-secondary"
 					>
-						This section is here to test the scroll experience and
-						give you a place to show a sample clip being trimmed.
-						Right now it uses your scissor-cutting reference
-						animation.
+						Here is a video of our demo of Snip on YouTube. 
 					</p>
 				</div>
 
@@ -285,19 +279,23 @@
 					<div
 						class="overflow-hidden rounded-[1.5rem] border border-snip-border bg-black"
 					>
-						<img
-							class="aspect-video w-full object-contain bg-black p-3"
-							src="/media/editor-preview.png"
-							alt="Snip video editor preview"
+						<iframe
+							class="aspect-video w-full bg-black"
+							src="https://www.youtube.com/embed/egc_p-gaabA"
+							title="Snip editor preview"
+							loading="lazy"
+							allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+							referrerpolicy="strict-origin-when-cross-origin"
+							allowfullscreen
 						/>
 					</div>
-					<div class="mt-4 flex items-center justify-between gap-4">
+					<div class="mt-5 flex items-center justify-between gap-4">
 						<div>
 							<p class="text-sm font-medium text-white">
-								Snip editor preview
+								Snip Preview
 							</p>
 							<p class="mt-1 text-sm text-snip-text-secondary">
-								A snapshot of the video editor, with all its features.
+								A preview of snip, with all its features.
 							</p>
 						</div>
 					</div>
