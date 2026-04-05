@@ -192,7 +192,7 @@
 						role="button"
 						tabindex="0"
 						aria-label="Upload audio or video"
-						class={`w-full rounded-[1.75rem] border border-dashed bg-snip-surface/92 px-4 py-4 transition-all duration-200 ${
+						class={`group w-full rounded-[1.75rem] border border-dashed bg-snip-surface/92 px-4 py-4 transition-all duration-200 ${
 							isDragging
 								? "border-primary/70 shadow-[0_0_0_1px_rgba(124,58,237,0.25)]"
 								: isActivating
@@ -211,12 +211,13 @@
 					>
 						<Button
 							size="lg"
+                            variant = "hero"
 							class={`h-14 w-full rounded-[1.2rem] border bg-snip-surface-elevated px-6 text-base font-semibold text-white transition-all duration-200 ${
 								isDragging
 									? "border-primary/70"
 									: isActivating
 										? "cursor-progress border-primary/60"
-										: "border-snip-border hover:border-white/25"
+										: "border-snip-border group-hover:border-primary/70 group-hover:bg-primary group-hover:shadow-[0_0_0_1px_rgba(124,58,237,0.22)]"
 							}`}
 						>
 							<span class="flex items-center gap-3">
