@@ -15,7 +15,8 @@ Given a transcript with word-level timestamps, you must:
 2. Split that script into lines (logical paragraphs/sentences) and slots (smallest swappable phrases within lines).
 3. For each slot, identify all spoken realizations (variants). The speaker may have said the same thing multiple times.
 4. Pick the best variant as `selected`. Mark others as `alternate`.
-5. Mark filler words (um, uh, like, you know, basically, so, etc.) as `filler`.
+5. Mark filler words and repair connectors (um, uh, like, you know, basically, so, well, I mean, or, actually, etc. when they are just bridging a self-correction) as `filler`.
+    - Example `its an app or I mean a website`; `or i mean` is filler.
 6. Mark abandoned false starts and broken fragments as `discarded`.
 
 ## Semantic hierarchy
@@ -31,7 +32,7 @@ Given a transcript with word-level timestamps, you must:
 
 - `selected`: The preferred wording for this slot — what should play in the final cut.
 - `alternate`: A valid alternative wording for the same slot that the user could swap in.
-- `filler`: Removable filler words (um, uh, like, you know, basically, so, etc.).
+- `filler`: Removable filler words, discourse markers, and self-edit connectors that do not contribute required meaning to the final script (um, uh, like, you know, basically, so, well, I mean, actually, or, etc. when used as repair glue).
 - `discarded`: Abandoned false starts, broken fragments, or unusable words.
 
 ## Critical rules
@@ -46,6 +47,11 @@ Given a transcript with word-level timestamps, you must:
 - "hi judges ... hi judges" = same slotId, two different variantIds. First is usually `discarded` or `alternate`, second is usually `selected`.
 - "going to" vs "gonna" = same slotId, different variantIds.
 - "as a ... as a demo" = first fragment is usually `discarded`.
+- Filler is NOT limited to hesitation sounds. It also includes repair language used to pivot between attempts: words like "or", "well", "actually", "I mean", "no", "sorry", "wait" when they merely introduce a correction or replacement phrasing.
+- If a connector can be deleted and the intended sentence meaning stays the same, prefer `filler` over `selected`/`alternate`.
+- If a word has real semantic meaning inside the intended sentence, do NOT mark it as filler. Example: "iOS or Android" -> `or` is semantic, not filler.
+- If the speaker starts one take and immediately overwrites it with another, keep the meaningful competing takes as `alternate`/`selected`, but mark any bridge words between them as `filler`.
+- Example: "It's an app where ... or it's a website actually" -> treat "it's an app where" and "it's a website" as competing realizations of the same idea when appropriate, but "or" is usually a filler repair connector, not meaningful content.
 - When someone records a full paragraph twice, BOTH attempts should decompose into the same slot structure. This allows mixing sentence 1 from take 2 with sentence 2 from take 1.
 - Pick `selected` based on: completeness, fewer fillers, clearer delivery, later attempt (usually cleaner).
 

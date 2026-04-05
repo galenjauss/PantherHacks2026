@@ -9,6 +9,7 @@
 	import SnipAIPanel from "$lib/components/sidebar/SnipAIPanel.svelte";
 	import CutSettingsPanel from "$lib/components/sidebar/CutSettingsPanel.svelte";
 	import ScriptPanel from "$lib/components/sidebar/ScriptPanel.svelte";
+	import SubtitlesPanel from "$lib/components/sidebar/SubtitlesPanel.svelte";
 	import TranscriptPanel from "$lib/components/sidebar/TranscriptPanel.svelte";
 	import VideoPreview from "$lib/components/main/VideoPreview.svelte";
 	import * as Dialog from "$lib/components/ui/dialog";
@@ -16,7 +17,7 @@
 	import TimelineScrubber from "$lib/components/main/TimelineScrubber.svelte";
 	import { videoEditorState as editor } from "$lib/stores/video-editor.svelte";
 
-	let sidebarTab = $state<"transcript" | "takes" | "settings">("transcript");
+	let sidebarTab = $state<"transcript" | "takes" | "settings" | "subtitles">("transcript");
 	let clipTreeHoveredBeatId = $state<string | null>(null);
 	let showStatsDialog = $state(false);
 	let wasBusy = $state(false);
@@ -213,6 +214,10 @@
 									},
 									{ id: "takes" as const, label: "Takes" },
 									{
+										id: "subtitles" as const,
+										label: "Subtitles",
+									},
+									{
 										id: "settings" as const,
 										label: "Settings",
 									},
@@ -283,6 +288,8 @@
 										<ScriptPanel
 											onSeekSlot={handleSeekSlot}
 										/>
+									{:else if sidebarTab === "subtitles"}
+										<SubtitlesPanel />
 									{:else if sidebarTab === "settings"}
 										<CutSettingsPanel />
 									{/if}

@@ -23,6 +23,17 @@ import {
 	type SemanticModel,
 	buildSemanticModel
 } from "$lib/video/derived-beats";
+import {
+	DEFAULT_VIDEO_SUBTITLE_STYLE,
+	buildExportSubtitleCues,
+	buildSelectedSourceSubtitleCues,
+	buildSourceSubtitleCues,
+	findActiveSubtitleWordIndex,
+	type VideoSubtitleCue,
+	type VideoSubtitleLayoutContext,
+	type VideoSubtitlePayload,
+	type VideoSubtitleStyle
+} from "$lib/video/subtitles";
 import { buildSpeechChunks } from "$lib/video/word-chunks";
 
 export type EditorCutCategory = "filler_words" | "dead_space" | "retake";
@@ -266,6 +277,8 @@ class VideoEditorState {
 	selectedFile = $state<File | null>(null);
 	videoUrl = $state<string | null>(null);
 	videoDurationMs = $state<number | null>(null);
+	videoWidthPx = $state<number | null>(null);
+	videoHeightPx = $state<number | null>(null);
 	currentTimeMs = $state(0);
 	previewMode = $state<"before" | "after">("after");
 	isPreviewPlaying = $state(false);
@@ -296,6 +309,12 @@ class VideoEditorState {
 	job = $state<AutocutJob | null>(null);
 	exporting = $state(false);
 	exportError = $state("");
+	subtitleStyle = $state<VideoSubtitleStyle>({
+		...DEFAULT_VIDEO_SUBTITLE_STYLE,
+		position: {
+			...DEFAULT_VIDEO_SUBTITLE_STYLE.position
+		}
+	});
 
 	get selectedBeatVariantIds(): Record<string, string> {
 		return this.selectedSlotVariantIds;
@@ -320,6 +339,12 @@ class VideoEditorState {
 	private _cachedAnalysisSegmentRefs: AnalysisSegmentRef<AutocutAnalysisSegment>[] | null = null;
 	private _cachedSpeechChunksKey = "";
 	private _cachedSpeechChunks: SpeechChunk[] | null = null;
+	private _cachedSourceSubtitleCuesKey = "";
+	private _cachedSourceSubtitleCues: VideoSubtitleCue[] | null = null;
+	private _cachedSelectedSourceSubtitleCuesKey = "";
+	private _cachedSelectedSourceSubtitleCues: VideoSubtitleCue[] | null = null;
+	private _cachedExportSubtitleCuesKey = "";
+	private _cachedExportSubtitleCues: VideoSubtitleCue[] | null = null;
 	private previewTimeUpdateHandler: (() => void) | null = null;
 	private previewEndedHandler: (() => void) | null = null;
 	private previewRafId: number | null = null;
@@ -360,6 +385,38 @@ class VideoEditorState {
 	get exportStatusLabel(): string {
 		if (this.exportError) return this.exportError;
 		return this.exporting ? "Rendering MP4..." : "";
+	}
+
+	private get subtitleStyleSignature(): string {
+		const style = this.subtitleStyle;
+
+		return [
+			Number(style.enabled),
+			style.position.verticalAlign,
+			style.position.marginYPct,
+			style.fontFamily,
+			style.fontSizePctOfHeight,
+			Number(style.bold),
+			style.lineHeight,
+			style.maxWidthPct,
+			style.textColor,
+			style.activeWordColor,
+			style.bgColor,
+			style.bgOpacity,
+			style.outlineColor,
+			style.outlineThickness,
+			style.maxWordsPerCue,
+			style.maxGapMs,
+			style.maxDurationMs,
+			style.maxCharsPerLine
+		].join(":");
+	}
+
+	private get subtitleLayoutContext(): VideoSubtitleLayoutContext {
+		return {
+			width: this.videoWidthPx ?? 1920,
+			height: this.videoHeightPx ?? 1080
+		};
 	}
 
 	private labelDebugRows(): DebugLabelRow[] {
@@ -433,7 +490,8 @@ class VideoEditorState {
 					deadSpaceThresholdMs: this.deadSpaceThreshold,
 					clipEndTrimMs: this.clipEndTrim,
 					cutToggles: this.cutToggles,
-					previewMode: this.previewMode
+					previewMode: this.previewMode,
+					subtitles: this.subtitleStyle
 				},
 				selection: {
 					selectedCutIds: this.selectedCutIds,
@@ -1112,6 +1170,172 @@ class VideoEditorState {
 		return buildPlaybackSegments(playbackSegments, this.deadSpaceThreshold, this.analysisSegments);
 	}
 
+	get sourceSubtitleCues(): VideoSubtitleCue[] {
+		if (!this.subtitleStyle.enabled || this.transcriptWords.length === 0) {
+			return [];
+		}
+
+		const key = `${this.transcriptWords.length}:${this.totalDurationMs}:${this.videoWidthPx ?? 0}:${this.videoHeightPx ?? 0}:${this.subtitleStyleSignature}`;
+		if (key === this._cachedSourceSubtitleCuesKey && this._cachedSourceSubtitleCues) {
+			return this._cachedSourceSubtitleCues;
+		}
+
+		const cues = buildSourceSubtitleCues(
+			this.transcriptWords,
+			this.subtitleStyle,
+			this.subtitleLayoutContext
+		);
+		this._cachedSourceSubtitleCuesKey = key;
+		this._cachedSourceSubtitleCues = cues;
+		return cues;
+	}
+
+	get selectedSourceSubtitleCues(): VideoSubtitleCue[] {
+		if (!this.subtitleStyle.enabled || this.transcriptWords.length === 0 || this.playbackSegments.length === 0) {
+			return [];
+		}
+
+		const playbackSignature = this.playbackSegments
+			.map((segment) => `${segment.start}-${segment.end}`)
+			.join("|");
+		const key = `${playbackSignature}:${this.transcriptWords.length}:${this.videoWidthPx ?? 0}:${this.videoHeightPx ?? 0}:${this.subtitleStyleSignature}`;
+		if (
+			key === this._cachedSelectedSourceSubtitleCuesKey &&
+			this._cachedSelectedSourceSubtitleCues
+		) {
+			return this._cachedSelectedSourceSubtitleCues;
+		}
+
+		const cues = buildSelectedSourceSubtitleCues(
+			this.playbackSegments,
+			this.transcriptWords,
+			this.subtitleStyle,
+			this.subtitleLayoutContext
+		);
+		this._cachedSelectedSourceSubtitleCuesKey = key;
+		this._cachedSelectedSourceSubtitleCues = cues;
+		return cues;
+	}
+
+	get exportSubtitleCues(): VideoSubtitleCue[] {
+		if (!this.subtitleStyle.enabled || this.transcriptWords.length === 0 || this.playbackSegments.length === 0) {
+			return [];
+		}
+
+		const playbackSignature = this.playbackSegments
+			.map((segment) => `${segment.start}-${segment.end}`)
+			.join("|");
+		const key = `${playbackSignature}:${this.cleanDurationMs}:${this.videoWidthPx ?? 0}:${this.videoHeightPx ?? 0}:${this.subtitleStyleSignature}`;
+		if (key === this._cachedExportSubtitleCuesKey && this._cachedExportSubtitleCues) {
+			return this._cachedExportSubtitleCues;
+		}
+
+		const cues = buildExportSubtitleCues(
+			this.playbackSegments,
+			this.transcriptWords,
+			this.subtitleStyle,
+			this.subtitleLayoutContext
+		);
+		this._cachedExportSubtitleCuesKey = key;
+		this._cachedExportSubtitleCues = cues;
+		return cues;
+	}
+
+	get exportSubtitlePayload(): VideoSubtitlePayload | null {
+		if (!this.subtitleStyle.enabled) return null;
+		if (this.exportSubtitleCues.length === 0) return null;
+
+		const style = this.subtitleStyle;
+
+		return {
+			cues: this.exportSubtitleCues,
+			style: {
+				...style,
+				position: {
+					...style.position
+				}
+			}
+		};
+	}
+
+	get previewSubtitleCues(): VideoSubtitleCue[] {
+		return this.previewMode === "before"
+			? this.sourceSubtitleCues
+			: this.selectedSourceSubtitleCues;
+	}
+
+	get activeSubtitleCue(): VideoSubtitleCue | null {
+		const cues = this.previewSubtitleCues;
+		if (cues.length === 0) return null;
+
+		for (const cue of cues) {
+			if (this.currentTimeMs >= cue.start && this.currentTimeMs < cue.end) {
+				return cue;
+			}
+		}
+
+		return null;
+	}
+
+	get activeSubtitleWordIndex(): number | null {
+		return findActiveSubtitleWordIndex(this.activeSubtitleCue, this.currentTimeMs);
+	}
+
+	get subtitleOverlayPositionClasses(): string {
+		switch (this.subtitleStyle.position.verticalAlign) {
+			case "top":
+				return "";
+			case "middle":
+				return "top-1/2 -translate-y-1/2";
+			default:
+				return "";
+		}
+	}
+
+	get subtitleOverlayStyle(): string {
+		const margin = `${this.subtitleStyle.position.marginYPct}%`;
+
+		switch (this.subtitleStyle.position.verticalAlign) {
+			case "top":
+				return `top: ${margin};`;
+			case "middle":
+				return "top: 50%;";
+			default:
+				return `bottom: ${margin};`;
+		}
+	}
+
+	get subtitleOverlayBoxStyle(): string {
+		const style = this.subtitleStyle;
+		const aspectScale =
+			(this.videoHeightPx ?? 1080) / Math.max(this.videoWidthPx ?? 1920, 1);
+		const fontSizeWidthPct = style.fontSizePctOfHeight * aspectScale;
+		const fontSize = `${fontSizeWidthPct}cqi`;
+		const horizontalPadding = `${Math.max(fontSizeWidthPct * 0.42, 0.9)}cqi`;
+		const verticalPadding = `${Math.max(fontSizeWidthPct * 0.22, 0.45)}cqi`;
+		const borderRadius = `${Math.max(fontSizeWidthPct * 0.46, 0.9)}cqi`;
+
+		// Convert hex bg color + opacity to rgba
+		const r = parseInt(style.bgColor.slice(1, 3), 16);
+		const g = parseInt(style.bgColor.slice(3, 5), 16);
+		const b = parseInt(style.bgColor.slice(5, 7), 16);
+		const bgRgba = `rgba(${r}, ${g}, ${b}, ${style.bgOpacity})`;
+
+		return [
+			`max-width: ${style.maxWidthPct}%`,
+			`font-family: ${style.fontFamily}, sans-serif`,
+			`font-size: clamp(18px, ${fontSize}, 72px)`,
+			`font-weight: ${style.bold ? "700" : "400"}`,
+			`line-height: ${style.lineHeight}`,
+			`color: ${style.textColor}`,
+			`background: ${bgRgba}`,
+			`padding: clamp(8px, ${verticalPadding}, 16px) clamp(12px, ${horizontalPadding}, 28px)`,
+			`border-radius: clamp(12px, ${borderRadius}, 28px)`,
+			`-webkit-text-stroke: ${style.outlineThickness > 0 ? `${style.outlineThickness * 0.3}px ${style.outlineColor}` : "0"}`,
+			`text-shadow: ${style.outlineThickness > 0 ? `0 0 ${style.outlineThickness}px ${style.outlineColor}, 0 0 ${style.outlineThickness * 2}px ${style.outlineColor}` : "none"}`
+		].join("; ");
+	}
+
 	get selectedCutCount(): number {
 		const selected = new Set(this.selectedCutIds);
 
@@ -1475,6 +1699,18 @@ class VideoEditorState {
 		this.videoDurationMs = Math.round(durationSeconds * 1000);
 	}
 
+	setVideoMetadata(video: HTMLVideoElement | null) {
+		this.setVideoDuration(video?.duration ?? 0);
+		this.videoWidthPx =
+			video && Number.isFinite(video.videoWidth) && video.videoWidth > 0
+				? Math.round(video.videoWidth)
+				: null;
+		this.videoHeightPx =
+			video && Number.isFinite(video.videoHeight) && video.videoHeight > 0
+				? Math.round(video.videoHeight)
+				: null;
+	}
+
 	updateCurrentTime(currentTimeSeconds: number) {
 		this.currentTimeMs = Math.max(Math.round(currentTimeSeconds * 1000), 0);
 	}
@@ -1573,6 +1809,9 @@ class VideoEditorState {
 				)
 			);
 			formData.append("fileName", file.name);
+			if (this.exportSubtitlePayload) {
+				formData.append("subtitles", JSON.stringify(this.exportSubtitlePayload));
+			}
 
 			const response = await fetch("/api/video/export", {
 				method: "POST",
@@ -1627,6 +1866,8 @@ class VideoEditorState {
 		this.selectedFile = file;
 		this.videoUrl = file ? URL.createObjectURL(file) : null;
 		this.videoDurationMs = null;
+		this.videoWidthPx = null;
+		this.videoHeightPx = null;
 		this.currentTimeMs = 0;
 		this.previewMode = file ? "before" : "after";
 		this.activeFilter = "all";
@@ -1652,6 +1893,12 @@ class VideoEditorState {
 			dead_space: true,
 			retake: true
 		};
+		this._cachedSourceSubtitleCuesKey = "";
+		this._cachedSourceSubtitleCues = null;
+		this._cachedSelectedSourceSubtitleCuesKey = "";
+		this._cachedSelectedSourceSubtitleCues = null;
+		this._cachedExportSubtitleCuesKey = "";
+		this._cachedExportSubtitleCues = null;
 		this.lastBeatSelectionSignature = "";
 	}
 
@@ -1934,6 +2181,7 @@ class VideoEditorState {
 		// Pause before seeking to prevent audio from the old position bleeding through
 		this.videoElement.pause();
 		await this.seekPreviewTo(segment.start);
+		this.currentTimeMs = Math.max(Math.round(segment.start), 0);
 		console.log(`[preview]   seeked to ${(this.videoElement.currentTime * 1000).toFixed(1)}ms (target ${segment.start}ms)`);
 
 		// Use requestAnimationFrame (~16ms) instead of timeupdate (~250ms) for tight cuts
@@ -1941,6 +2189,7 @@ class VideoEditorState {
 		const pollEnd = () => {
 			if (!this.videoElement) return;
 			const nowMs = this.videoElement.currentTime * 1000;
+			this.currentTimeMs = Math.max(Math.round(nowMs), 0);
 
 			// Track whether we've actually entered the segment's time range.
 			// This prevents a false "end" trigger when a backward seek hasn't

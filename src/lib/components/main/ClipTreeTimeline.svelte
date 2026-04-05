@@ -48,6 +48,7 @@
 	interface TreeCurve {
 		key: string;
 		d: string;
+		arrowPoints: string;
 		active: boolean;
 	}
 
@@ -85,25 +86,18 @@
 					const ax2 = x2 - 8;
 					if (ax2 <= ax1) continue;
 					const midX = (ax1 + ax2) / 2;
-					const horizontalGap = ax2 - ax1;
 					const sameLevel = Math.abs(y1 - y2) < 6;
-
-					let d: string;
-					if (sameLevel) {
-						// Give same-row connections a real arch so the stroke and arrowhead
-						// stay visible instead of collapsing into a nearly flat segment.
-						const archHeight = Math.max(12, Math.min(24, horizontalGap * 0.18));
-						const ctrl1X = ax1 + horizontalGap * 0.28;
-						const ctrl2X = ax2 - horizontalGap * 0.28;
-						const ctrlY = y1 - archHeight;
-						d = `M ${ax1},${y1} C ${ctrl1X},${ctrlY} ${ctrl2X},${ctrlY} ${ax2},${y2}`;
-					} else {
-						d = `M ${ax1},${y1} C ${midX},${y1} ${midX},${y2} ${ax2},${y2}`;
-					}
+					const d = sameLevel
+						? `M ${ax1},${y1} L ${ax2},${y2}`
+						: `M ${ax1},${y1} C ${midX},${y1} ${midX},${y2} ${ax2},${y2}`;
+					const arrowWidth = 6;
+					const arrowHeight = 3.5;
+					const arrowPoints = `${ax2 - arrowWidth},${y2 - arrowHeight} ${ax2},${y2} ${ax2 - arrowWidth},${y2 + arrowHeight}`;
 
 					result.push({
 						key: `${lv.id}--${rv.id}`,
 						d,
+						arrowPoints,
 						active: lv.isSelected && rv.isSelected
 					});
 				}
@@ -235,43 +229,27 @@
 					<feMergeNode in="SourceGraphic" />
 				</feMerge>
 			</filter>
-			<marker
-				id="arrow-active"
-				viewBox="0 0 6 6"
-				refX="5"
-				refY="3"
-				markerWidth="5"
-				markerHeight="5"
-				orient="auto"
-			>
-				<path d="M 0 0.5 L 5 3 L 0 5.5 z" fill="var(--primary)" />
-			</marker>
-			<marker
-				id="arrow-inactive"
-				viewBox="0 0 6 6"
-				refX="5"
-				refY="3"
-				markerWidth="5"
-				markerHeight="5"
-				orient="auto"
-			>
-				<path d="M 0 0.5 L 5 3 L 0 5.5 z" fill="var(--snip-border)" opacity="0.6" />
-			</marker>
 		</defs>
 		{#each curves as curve (curve.key)}
-			<path
-				d={curve.d}
-				fill="none"
-				stroke={curve.active ? "var(--primary)" : "var(--snip-border)"}
-				stroke-width={curve.active ? 2 : 1.5}
-				stroke-linecap="round"
-				stroke-linejoin="round"
-				stroke-opacity={curve.active ? 0.9 : 0.35}
-				shape-rendering="geometricPrecision"
-				filter={curve.active ? "url(#active-glow)" : "none"}
-				marker-end={curve.active ? "url(#arrow-active)" : "url(#arrow-inactive)"}
-				style="transition: stroke-opacity 300ms ease, stroke-width 300ms ease, stroke 300ms ease;"
-			/>
+			<g filter={curve.active ? "url(#active-glow)" : "none"}>
+				<path
+					d={curve.d}
+					fill="none"
+					stroke={curve.active ? "var(--primary)" : "var(--snip-border)"}
+					stroke-width={curve.active ? 2 : 1.5}
+					stroke-linecap="round"
+					stroke-linejoin="round"
+					stroke-opacity={curve.active ? 0.9 : 0.35}
+					shape-rendering="geometricPrecision"
+					style="transition: stroke-opacity 300ms ease, stroke-width 300ms ease, stroke 300ms ease;"
+				/>
+				<polygon
+					points={curve.arrowPoints}
+					fill={curve.active ? "var(--primary)" : "var(--snip-border)"}
+					fill-opacity={curve.active ? 0.95 : 0.55}
+					style="transition: fill-opacity 300ms ease, fill 300ms ease;"
+				/>
+			</g>
 		{/each}
 	</svg>
 </div>

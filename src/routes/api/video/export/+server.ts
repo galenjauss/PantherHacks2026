@@ -1,5 +1,13 @@
 import { json } from "@sveltejs/kit";
 import type { RequestHandler } from "./$types";
+import {
+	normalizeSubtitlePayload,
+	resolveSubtitleRenderMetrics,
+	type VideoSubtitleCue,
+	type VideoSubtitleLayoutContext,
+	type VideoSubtitlePayload,
+	type VideoSubtitleStyle
+} from "$lib/video/subtitles";
 
 import { spawn } from "node:child_process";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
@@ -13,6 +21,8 @@ interface ExportSegment {
 
 interface ProbeStream {
 	codec_type?: string;
+	width?: number;
+	height?: number;
 }
 
 function isSegment(value: unknown): value is ExportSegment {
@@ -41,10 +51,137 @@ function formatSeconds(ms: number): string {
 	return (ms / 1000).toFixed(3);
 }
 
+function formatAssTimestamp(ms: number): string {
+	const totalMs = Math.max(Math.round(ms), 0);
+	const hours = Math.floor(totalMs / 3_600_000);
+	const minutes = Math.floor((totalMs % 3_600_000) / 60_000);
+	const seconds = Math.floor((totalMs % 60_000) / 1000);
+	const centiseconds = Math.floor((totalMs % 1000) / 10);
+
+	return `${hours}:${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}.${String(centiseconds).padStart(2, "0")}`;
+}
+
+function escapeAssText(text: string): string {
+	return text
+		.replace(/\\/g, "\\\\")
+		.replace(/\{/g, "(")
+		.replace(/\}/g, ")")
+		.replace(/\r/g, "")
+		.replace(/\n/g, "\\N");
+}
+
+function filterPath(value: string): string {
+	return value
+		.replace(/\\/g, "\\\\")
+		.replace(/:/g, "\\:")
+		.replace(/,/g, "\\,")
+		.replace(/\[/g, "\\[")
+		.replace(/\]/g, "\\]")
+		.replace(/'/g, "\\'");
+}
+
+function hexToAssColor(hex: string): string {
+	const normalized = hex.replace("#", "").trim();
+	if (!/^[0-9a-fA-F]{6}$/.test(normalized)) {
+		return "&H00FFFFFF";
+	}
+
+	const red = normalized.slice(0, 2);
+	const green = normalized.slice(2, 4);
+	const blue = normalized.slice(4, 6);
+	return `&H00${blue}${green}${red}`.toUpperCase();
+}
+
+function buildAssCueText(
+	cue: VideoSubtitleCue,
+	style: VideoSubtitleStyle,
+	activeWordIndex: number | null,
+	overlayOnlyActiveWord = false
+): string {
+	const activeColor = hexToAssColor(style.activeWordColor);
+	return cue.words.reduce((result, word, index) => {
+		const prefix = word.lineBreakBefore ? "\\N" : word.leadingSpace ? " " : "";
+		const text = escapeAssText(word.text);
+		const renderedWord = overlayOnlyActiveWord
+			? activeWordIndex === index
+				? `{\\c${activeColor}}${text}{\\r}`
+				: `{\\1a&HFF&\\3a&HFF&}${text}{\\r}`
+			: activeWordIndex === index
+				? `{\\c${activeColor}}${text}{\\r}`
+				: text;
+
+		return `${result}${prefix}${renderedWord}`;
+	}, "");
+}
+
+function hexToAssAlpha(opacity: number): string {
+	const alpha = Math.round((1 - Math.max(0, Math.min(1, opacity))) * 255);
+	return `&H${alpha.toString(16).toUpperCase().padStart(2, "0")}`;
+}
+
+function serializeAss(payload: VideoSubtitlePayload, context: VideoSubtitleLayoutContext): string {
+	const style = payload.style;
+	const metrics = resolveSubtitleRenderMetrics(style, context);
+	const alignment =
+		style.position.verticalAlign === "top"
+			? 8
+			: style.position.verticalAlign === "middle"
+				? 5
+				: 2;
+	const baseColor = hexToAssColor(style.textColor);
+	const outlineColor = hexToAssColor(style.outlineColor);
+	const bgAlpha = hexToAssAlpha(style.bgOpacity);
+	const bgColor = hexToAssColor(style.bgColor).replace("&H00", `${bgAlpha}`);
+	const boldFlag = style.bold ? -1 : 0;
+	const events: string[] = [];
+
+	for (const cue of payload.cues) {
+		const baseText = buildAssCueText(cue, style, null);
+		if (baseText) {
+			events.push(
+				`Dialogue: 0,${formatAssTimestamp(cue.start)},${formatAssTimestamp(cue.end)},Subtitle,,0,0,0,,${baseText}`
+			);
+		}
+
+		for (const [wordIndex, word] of cue.words.entries()) {
+			if (word.end - word.start < 20) continue;
+
+			const highlightedText = buildAssCueText(cue, style, wordIndex, true);
+			if (!highlightedText) continue;
+
+			events.push(
+				`Dialogue: 1,${formatAssTimestamp(word.start)},${formatAssTimestamp(word.end)},Subtitle,,0,0,0,,${highlightedText}`
+			);
+		}
+	}
+
+	return [
+		"[Script Info]",
+		"ScriptType: v4.00+",
+		`PlayResX: ${context.width}`,
+		`PlayResY: ${context.height}`,
+		"WrapStyle: 2",
+		"ScaledBorderAndShadow: yes",
+		"",
+		"[V4+ Styles]",
+		"Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding",
+		`Style: Subtitle,${style.fontFamily},${metrics.fontSizePx},${baseColor},${baseColor},${outlineColor},${bgColor},${boldFlag},0,0,0,100,100,0,0,3,${style.outlineThickness},0,${alignment},${metrics.marginXpx},${metrics.marginXpx},${metrics.marginYpx},1`,
+		"",
+		"[Events]",
+		"Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text",
+		...events
+	].join("\n");
+}
+
+function buildSubtitleFilter(subtitlesPath: string): string {
+	return `[basev]subtitles=filename='${filterPath(subtitlesPath)}'[outv]`;
+}
+
 function buildFilterComplex(
 	segments: ExportSegment[],
 	hasVideo: boolean,
-	hasAudio: boolean
+	hasAudio: boolean,
+	subtitlesPath: string | null
 ): string {
 	const filterParts: string[] = [];
 	const concatInputs: string[] = [];
@@ -65,14 +202,16 @@ function buildFilterComplex(
 		}
 	}
 
-	const concatOutputs = [
-		hasVideo ? "[outv]" : "",
-		hasAudio ? "[outa]" : ""
-	].join("");
+	const concatVideoOutput = hasVideo ? (subtitlesPath ? "[basev]" : "[outv]") : "";
+	const concatOutputs = [concatVideoOutput, hasAudio ? "[outa]" : ""].join("");
 
 	filterParts.push(
 		`${concatInputs.join("")}concat=n=${segments.length}:v=${hasVideo ? 1 : 0}:a=${hasAudio ? 1 : 0}${concatOutputs}`
 	);
+
+	if (hasVideo && subtitlesPath) {
+		filterParts.push(buildSubtitleFilter(subtitlesPath));
+	}
 
 	return filterParts.join(";");
 }
@@ -122,6 +261,7 @@ export const POST: RequestHandler = async ({ request }) => {
 	const file = formData.get("file");
 	const rawSegments = formData.get("segments");
 	const requestedFileName = formData.get("fileName");
+	const rawSubtitles = formData.get("subtitles");
 
 	if (!(file instanceof File)) {
 		return json({ error: "No file provided." }, { status: 400 });
@@ -132,6 +272,7 @@ export const POST: RequestHandler = async ({ request }) => {
 	}
 
 	let segments: ExportSegment[];
+	let subtitlePayload: VideoSubtitlePayload | null = null;
 
 	try {
 		segments = normalizeSegments(JSON.parse(rawSegments));
@@ -140,6 +281,22 @@ export const POST: RequestHandler = async ({ request }) => {
 			{ error: error instanceof Error ? error.message : "Invalid segments payload." },
 			{ status: 400 }
 		);
+	}
+
+	if (typeof rawSubtitles === "string" && rawSubtitles.trim()) {
+		try {
+			subtitlePayload = normalizeSubtitlePayload(JSON.parse(rawSubtitles));
+			if (!subtitlePayload) {
+				return json({ error: "Invalid subtitles payload." }, { status: 400 });
+			}
+		} catch (error) {
+			return json(
+				{ error: error instanceof Error ? error.message : "Invalid subtitles payload." },
+				{ status: 400 }
+			);
+		}
+	} else if (rawSubtitles !== null && rawSubtitles !== undefined) {
+		return json({ error: "Subtitles payload must be a JSON string." }, { status: 400 });
 	}
 
 	if (segments.length === 0) {
@@ -153,6 +310,7 @@ export const POST: RequestHandler = async ({ request }) => {
 		file.name
 	);
 	const outputPath = join(tempDir, outputName);
+	const subtitlesPath = join(tempDir, "subtitles.ass");
 
 	try {
 		await writeFile(inputPath, Buffer.from(await file.arrayBuffer()));
@@ -166,14 +324,34 @@ export const POST: RequestHandler = async ({ request }) => {
 			inputPath
 		]);
 		const probeJson = JSON.parse(probe.stdout) as { streams?: ProbeStream[] };
-		const hasVideo = probeJson.streams?.some((stream) => stream.codec_type === "video") ?? false;
+		const videoStream = probeJson.streams?.find((stream) => stream.codec_type === "video") ?? null;
+		const hasVideo = Boolean(videoStream);
 		const hasAudio = probeJson.streams?.some((stream) => stream.codec_type === "audio") ?? false;
 
 		if (!hasVideo && !hasAudio) {
 			return json({ error: "The uploaded media does not contain audio or video streams." }, { status: 400 });
 		}
 
-		const filterComplex = buildFilterComplex(segments, hasVideo, hasAudio);
+		if (hasVideo && subtitlePayload?.cues.length) {
+			const context: VideoSubtitleLayoutContext = {
+				width:
+					typeof videoStream?.width === "number" && Number.isFinite(videoStream.width) && videoStream.width > 0
+						? Math.round(videoStream.width)
+						: 1920,
+				height:
+					typeof videoStream?.height === "number" && Number.isFinite(videoStream.height) && videoStream.height > 0
+						? Math.round(videoStream.height)
+						: 1080
+			};
+			await writeFile(subtitlesPath, serializeAss(subtitlePayload, context), "utf8");
+		}
+
+		const filterComplex = buildFilterComplex(
+			segments,
+			hasVideo,
+			hasAudio,
+			hasVideo && subtitlePayload?.cues.length ? subtitlesPath : null
+		);
 		const ffmpegArgs = [
 			"-y",
 			"-i",
