@@ -379,11 +379,6 @@
 											endMs: b.startMs + b.durationMs,
 											color: b.color,
 											beatId: b.beatId!,
-											previewText:
-												selected?.previewText ??
-												block?.variants[0]
-													?.previewText ??
-												"",
 										};
 									})}
 								formatClock={editor.formatClock.bind(editor)}

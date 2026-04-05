@@ -1,4 +1,9 @@
 <script lang="ts">
+	import {
+		HoverCard,
+		HoverCardContent,
+		HoverCardTrigger,
+	} from "$lib/components/ui/hover-card";
 	import { cn } from "$lib/utils.js";
 	import type { AutocutTranscriptWord } from "$lib/types/autocut";
 	import type { EditorClipStripBeatBlock } from "$lib/stores/video-editor.svelte";
@@ -152,6 +157,21 @@
 
 	function clampMs(value: number, min: number, max: number): number {
 		return Math.min(max, Math.max(min, value));
+	}
+
+	function slotScriptText(block: EditorClipStripBeatBlock): string {
+		const selected = block.variants.find((variant) => variant.isSelected);
+		return (
+			selected?.previewText ?? block.variants[0]?.previewText ?? ""
+		).trim();
+	}
+
+	function primaryVariantForBlock(block: EditorClipStripBeatBlock) {
+		return (
+			block.variants.find((variant) => variant.isSelected) ??
+			block.variants[0] ??
+			null
+		);
 	}
 
 	function snapTrimMs(value: number): number {
@@ -611,6 +631,8 @@
 		{#each blocks as block (block.id)}
 			{@const isPlaying =
 				currentTimeMs >= block.startMs && currentTimeMs < block.endMs}
+			{@const script = slotScriptText(block)}
+			{@const primaryVariant = primaryVariantForBlock(block)}
 			<!-- svelte-ignore a11y_no_static_element_interactions -->
 			<div
 				class={cn(
@@ -621,6 +643,50 @@
 				onmouseenter={() => (hoveredBeatId = block.beatId)}
 				onmouseleave={() => (hoveredBeatId = null)}
 			>
+				<HoverCard openDelay={200} closeDelay={100} disabled={!script}>
+					<HoverCardTrigger>
+						{#snippet child({ props })}
+							<button
+								type="button"
+								{...props}
+								class={cn(
+									"flex w-full flex-col gap-0.5 rounded-sm px-0.5 text-left transition-colors hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50",
+									props.class as string | undefined,
+								)}
+								disabled={!primaryVariant}
+								onclick={() =>
+									primaryVariant &&
+									onSelectVariant(
+										block.beatId,
+										primaryVariant.variantId,
+										primaryVariant.start,
+									)}
+							>
+								<div class="flex items-center gap-1.5">
+									<div
+										class="size-2 shrink-0 rounded-full"
+										style={`background:${block.color};`}
+									></div>
+									<span class="truncate text-[10px] font-medium text-snip-text-secondary">
+										{block.humanLabel}
+									</span>
+								</div>
+								<span class="font-mono text-[8px] tabular-nums text-snip-text-secondary">
+									{formatDuration(block.startMs)} -
+									{formatDuration(block.endMs)}
+								</span>
+							</button>
+						{/snippet}
+					</HoverCardTrigger>
+					<HoverCardContent
+						side="top"
+						align="center"
+						sideOffset={8}
+						class="max-w-xs border-snip-border bg-snip-surface-elevated p-3 text-xs leading-relaxed text-snip-text-primary shadow-xl ring-0"
+					>
+						<p class="text-pretty">{script}</p>
+					</HoverCardContent>
+				</HoverCard>
 				{#each block.variants as variant, takeIdx (variant.id)}
 					<button
 						type="button"

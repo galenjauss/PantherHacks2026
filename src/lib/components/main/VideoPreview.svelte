@@ -41,6 +41,7 @@
 		{#key editor.videoUrl}
 			<div
 				class="relative aspect-video max-h-full max-w-full overflow-hidden rounded-[20px] border border-snip-border bg-black/70 shadow-[0_40px_120px_rgba(0,0,0,0.35)]"
+				style={editor.previewFrameStyle}
 				in:scale={{ start: 0.96, duration: 300, opacity: 0 }}
 			>
 				{#if editor.videoUrl}
@@ -70,27 +71,26 @@
 					{/if}
 
 					{#if editor.activeSubtitleCue}
-						<div
-							class={`pointer-events-none absolute inset-x-0 z-10 flex justify-center px-6 ${editor.subtitleOverlayPositionClasses}`}
-							style={`${editor.subtitleOverlayStyle}; container-type: inline-size;`}
-						>
+						<div class="pointer-events-none absolute inset-0 z-10" style="container-type: inline-size;">
 							<div
-								class="text-center shadow-[0_18px_40px_rgba(0,0,0,0.28)] backdrop-blur-[2px]"
-								style={editor.subtitleOverlayBoxStyle}
+								class="absolute flex justify-center"
+								style={editor.subtitleOverlayStyle}
 							>
-								{#each editor.activeSubtitleCue.words as word, index (index)}
-									{#if word.lineBreakBefore}
-										<br />
-									{/if}
-									{#if word.leadingSpace}
-										<span> </span>
-									{/if}
-									<span style={editor.activeSubtitleWordIndex === index
-										? `color: ${editor.subtitleStyle.activeWordColor}; text-shadow: 0 0 18px ${editor.subtitleStyle.activeWordColor}44;`
-										: `color: ${editor.subtitleStyle.textColor};`}>
-										{word.text}
-									</span>
-								{/each}
+								<div class="text-center" style={editor.subtitleOverlayBoxStyle}>
+									{#each editor.activeSubtitleCue.words as word, index (index)}
+										{#if word.lineBreakBefore}
+											<br />
+										{/if}
+										{#if word.leadingSpace}
+											<span> </span>
+										{/if}
+										<span style={editor.activeSubtitleWordIndex === index
+											? `color: ${editor.subtitleStyle.activeWordColor};`
+											: `color: ${editor.subtitleStyle.textColor};`}>
+											{word.text}
+										</span>
+									{/each}
+								</div>
 							</div>
 						</div>
 					{/if}

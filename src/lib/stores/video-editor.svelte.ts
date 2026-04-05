@@ -29,6 +29,7 @@ import {
 	buildSelectedSourceSubtitleCues,
 	buildSourceSubtitleCues,
 	findActiveSubtitleWordIndex,
+	resolveSubtitleRenderMetrics,
 	type VideoSubtitleCue,
 	type VideoSubtitleLayoutContext,
 	type VideoSubtitlePayload,
@@ -1348,58 +1349,75 @@ class VideoEditorState {
 		return findActiveSubtitleWordIndex(this.activeSubtitleCue, this.currentTimeMs);
 	}
 
-	get subtitleOverlayPositionClasses(): string {
-		switch (this.subtitleStyle.position.verticalAlign) {
-			case "top":
-				return "";
-			case "middle":
-				return "top-1/2 -translate-y-1/2";
-			default:
-				return "";
-		}
+	get previewFrameStyle(): string {
+		const width = Math.max(this.videoWidthPx ?? 1920, 1);
+		const height = Math.max(this.videoHeightPx ?? 1080, 1);
+
+		return `aspect-ratio: ${width} / ${height}; height: 100%;`;
 	}
 
 	get subtitleOverlayStyle(): string {
-		const margin = `${this.subtitleStyle.position.marginYPct}%`;
+		const context = this.subtitleLayoutContext;
+		const metrics = resolveSubtitleRenderMetrics(this.subtitleStyle, context);
+		const horizontalInset = `${(metrics.marginXpx / Math.max(context.width, 1)) * 100}%`;
+		const verticalInset = `${(metrics.marginYpx / Math.max(context.height, 1)) * 100}%`;
 
 		switch (this.subtitleStyle.position.verticalAlign) {
 			case "top":
-				return `top: ${margin};`;
+				return [
+					`left: ${horizontalInset}`,
+					`right: ${horizontalInset}`,
+					`top: ${verticalInset}`
+				].join("; ");
 			case "middle":
-				return "top: 50%;";
+				return [
+					`left: ${horizontalInset}`,
+					`right: ${horizontalInset}`,
+					"top: 50%",
+					"transform: translateY(-50%)"
+				].join("; ");
 			default:
-				return `bottom: ${margin};`;
+				return [
+					`left: ${horizontalInset}`,
+					`right: ${horizontalInset}`,
+					`bottom: ${verticalInset}`
+				].join("; ");
 		}
 	}
 
 	get subtitleOverlayBoxStyle(): string {
 		const style = this.subtitleStyle;
-		const aspectScale =
-			(this.videoHeightPx ?? 1080) / Math.max(this.videoWidthPx ?? 1920, 1);
-		const fontSizeWidthPct = style.fontSizePctOfHeight * aspectScale;
-		const fontSize = `${fontSizeWidthPct}cqi`;
-		const horizontalPadding = `${Math.max(fontSizeWidthPct * 0.42, 0.9)}cqi`;
-		const verticalPadding = `${Math.max(fontSizeWidthPct * 0.22, 0.45)}cqi`;
-		const borderRadius = `${Math.max(fontSizeWidthPct * 0.46, 0.9)}cqi`;
+		const context = this.subtitleLayoutContext;
+		const metrics = resolveSubtitleRenderMetrics(style, context);
+		const contextWidth = Math.max(context.width, 1);
+		const fontSize = `${(metrics.fontSizePx / contextWidth) * 100}cqi`;
+		const horizontalPadding = `${(Math.max(metrics.fontSizePx * 0.18, style.outlineThickness * 1.8) / contextWidth) * 100}cqi`;
+		const verticalPadding = `${(Math.max(metrics.fontSizePx * 0.08, style.outlineThickness * 1.2) / contextWidth) * 100}cqi`;
+		const borderRadius = `${(Math.max(metrics.fontSizePx * 0.08, style.outlineThickness) / contextWidth) * 100}cqi`;
+		const outlineThickness =
+			style.outlineThickness > 0
+				? `${(style.outlineThickness / contextWidth) * 100}cqi ${style.outlineColor}`
+				: "0";
+		const normalizedBgColor = /^#[\da-fA-F]{6}$/.test(style.bgColor) ? style.bgColor : "#000000";
 
 		// Convert hex bg color + opacity to rgba
-		const r = parseInt(style.bgColor.slice(1, 3), 16);
-		const g = parseInt(style.bgColor.slice(3, 5), 16);
-		const b = parseInt(style.bgColor.slice(5, 7), 16);
+		const r = parseInt(normalizedBgColor.slice(1, 3), 16);
+		const g = parseInt(normalizedBgColor.slice(3, 5), 16);
+		const b = parseInt(normalizedBgColor.slice(5, 7), 16);
 		const bgRgba = `rgba(${r}, ${g}, ${b}, ${style.bgOpacity})`;
 
 		return [
-			`max-width: ${style.maxWidthPct}%`,
+			"max-width: 100%",
 			`font-family: ${style.fontFamily}, sans-serif`,
-			`font-size: clamp(18px, ${fontSize}, 72px)`,
+			`font-size: ${fontSize}`,
 			`font-weight: ${style.bold ? "700" : "400"}`,
 			`line-height: ${style.lineHeight}`,
 			`color: ${style.textColor}`,
 			`background: ${bgRgba}`,
-			`padding: clamp(8px, ${verticalPadding}, 16px) clamp(12px, ${horizontalPadding}, 28px)`,
-			`border-radius: clamp(12px, ${borderRadius}, 28px)`,
-			`-webkit-text-stroke: ${style.outlineThickness > 0 ? `${style.outlineThickness * 0.3}px ${style.outlineColor}` : "0"}`,
-			`text-shadow: ${style.outlineThickness > 0 ? `0 0 ${style.outlineThickness}px ${style.outlineColor}, 0 0 ${style.outlineThickness * 2}px ${style.outlineColor}` : "none"}`
+			`padding: ${verticalPadding} ${horizontalPadding}`,
+			`border-radius: ${borderRadius}`,
+			`-webkit-text-stroke: ${outlineThickness}`,
+			"text-shadow: none"
 		].join("; ");
 	}
 
@@ -1849,9 +1867,18 @@ class VideoEditorState {
 
 		if (segments.length === 0) return;
 
+		const resumeSegmentIndex = segments.findIndex((segment) =>
+			this.currentTimeMs >= segment.start && this.currentTimeMs < segment.end
+		);
+		const startSegmentIndex = resumeSegmentIndex >= 0 ? resumeSegmentIndex : 0;
+		const startTimeMs =
+			resumeSegmentIndex >= 0
+				? clamp(this.currentTimeMs, segments[startSegmentIndex].start, segments[startSegmentIndex].end)
+				: segments[0].start;
+
 		this.isPreviewPlaying = true;
-		this.currentPreviewSegmentIndex = 0;
-		await this.playSegment(0, segments);
+		this.currentPreviewSegmentIndex = startSegmentIndex;
+		await this.playSegment(startSegmentIndex, segments, startTimeMs);
 	}
 
 	stopPreview() {
@@ -2287,7 +2314,11 @@ class VideoEditorState {
 		});
 	}
 
-	private async playSegment(index: number, segments: AutocutAnalysisSegment[]) {
+	private async playSegment(
+		index: number,
+		segments: AutocutAnalysisSegment[],
+		startTimeMs: number | null = null
+	) {
 		if (!this.videoElement) return;
 
 		if (index >= segments.length) {
@@ -2298,14 +2329,15 @@ class VideoEditorState {
 
 		this.currentPreviewSegmentIndex = index;
 		const segment = segments[index];
+		const seekTargetMs = clamp(startTimeMs ?? segment.start, segment.start, segment.end);
 
-		console.log(`[preview] segment ${index}/${segments.length}: "${segment.text}" start=${segment.start}ms end=${segment.end}ms`);
+		console.log(`[preview] segment ${index}/${segments.length}: "${segment.text}" start=${segment.start}ms end=${segment.end}ms seek=${seekTargetMs}ms`);
 
 		// Pause before seeking to prevent audio from the old position bleeding through
 		this.videoElement.pause();
-		await this.seekPreviewTo(segment.start);
-		this.currentTimeMs = Math.max(Math.round(segment.start), 0);
-		console.log(`[preview]   seeked to ${(this.videoElement.currentTime * 1000).toFixed(1)}ms (target ${segment.start}ms)`);
+		await this.seekPreviewTo(seekTargetMs);
+		this.currentTimeMs = Math.max(Math.round(seekTargetMs), 0);
+		console.log(`[preview]   seeked to ${(this.videoElement.currentTime * 1000).toFixed(1)}ms (target ${seekTargetMs}ms)`);
 
 		// Use requestAnimationFrame (~16ms) instead of timeupdate (~250ms) for tight cuts
 		let hasEnteredRange = false;
@@ -2318,7 +2350,7 @@ class VideoEditorState {
 			// This prevents a false "end" trigger when a backward seek hasn't
 			// fully settled and currentTime is still beyond segment.end.
 			if (!hasEnteredRange) {
-				if (nowMs >= segment.start - PREVIEW_EPSILON_MS && nowMs < segment.end + PREVIEW_EPSILON_MS) {
+				if (nowMs >= seekTargetMs - PREVIEW_EPSILON_MS && nowMs < segment.end + PREVIEW_EPSILON_MS) {
 					hasEnteredRange = true;
 				} else {
 					// Not in range yet — keep polling
