@@ -276,32 +276,20 @@
 					<div
 						class="overflow-hidden rounded-[1.5rem] border border-snip-border bg-black"
 					>
-						<video
-							class="aspect-video w-full object-cover"
-							src="/media/scissors-cutting-demo.webm"
-							autoplay
-							muted
-							loop
-							playsinline
-							controls
-						>
-							<track kind="captions" />
-						</video>
+						<img
+							class="aspect-video w-full object-contain bg-black p-3"
+							src="/media/editor-preview.png"
+							alt="Snip video editor preview"
+						/>
 					</div>
 					<div class="mt-4 flex items-center justify-between gap-4">
 						<div>
 							<p class="text-sm font-medium text-white">
-								Scissor cutting reference
+								Snip editor preview
 							</p>
 							<p class="mt-1 text-sm text-snip-text-secondary">
-								Used as a stand-in for the future sample snip
-								preview.
+								A snapshot of the video editor, with all its features.
 							</p>
-						</div>
-						<div
-							class="rounded-full border border-snip-border bg-snip-surface-elevated px-3 py-1 text-xs text-snip-text-secondary"
-						>
-							webm sample
 						</div>
 					</div>
 				</div>
