@@ -111,17 +111,25 @@
 		<div class="mx-auto h-full w-full max-w-7xl px-4 sm:px-5 lg:px-8">
 			<div class="relative h-[calc(100svh-7rem)]">
 				<div
-					class="absolute left-[-5%] top-[22%] h-112 w-88 -rotate-12 rounded-[2.5rem] border border-white/6 bg-[linear-gradient(145deg,rgba(248,248,246,0.96),rgba(224,223,218,0.9))] shadow-[0_28px_80px_rgba(0,0,0,0.45),inset_0_1px_0_rgba(255,255,255,0.95)]"
-				></div>
-
-				<div
-					class="absolute left-[-6%] top-[47%] h-px w-87 -rotate-12 border-t-2 border-dashed border-primary/55 opacity-80"
-				></div>
-				<p
-					class="font-display absolute left-[7%] top-[41%] -rotate-12 text-5xl font-semibold tracking-tight text-black/70"
+					aria-hidden="true"
+					class="snip-cut-scene absolute left-[-6%] top-[22%] h-[29rem] w-[24rem] -rotate-12"
 				>
-					um...
-				</p>
+					<div class="snip-cut-layer snip-cut-layer-static">
+						<div class="snip-cut-content">
+							<div class="snip-paper-card"></div>
+							<p class="snip-cut-copy font-display">um...</p>
+						</div>
+					</div>
+
+					<div class="snip-cut-layer snip-cut-layer-falling">
+						<div class="snip-cut-content">
+							<div class="snip-paper-card"></div>
+							<p class="snip-cut-copy font-display">um...</p>
+						</div>
+					</div>
+
+					<div class="snip-cut-line"></div>
+				</div>
 				<div class="absolute left-[20%] top-[33%] rotate-155">
 					<div class="relative">
 						<div
@@ -255,11 +263,7 @@
 				class="mx-auto grid max-w-6xl gap-8 lg:grid-cols-[minmax(0,1.1fr)_minmax(320px,0.9fr)]"
 			>
 				<div class="space-y-4">
-					<p
-						class="text-xs font-medium uppercase tracking-[0.3em] text-muted-foreground"
-					>
-						Sample snip
-					</p>
+
 					<h2
 						class="max-w-xl text-3xl leading-[1.31] font-semibold tracking-tight text-white sm:text-4xl"
 					>
@@ -313,3 +317,102 @@
 		/>
 	</div>
 </div>
+
+<style>
+	:global(:root) {
+		--snip-cut-y: 10.7rem;
+	}
+
+	.snip-cut-scene {
+		overflow: visible;
+	}
+
+	.snip-cut-layer {
+		position: absolute;
+		inset: 0;
+		will-change: transform, opacity;
+	}
+
+	.snip-cut-content {
+		position: relative;
+		height: 100%;
+		width: 100%;
+	}
+
+	.snip-cut-layer-static {
+		clip-path: inset(0 0 calc(100% - var(--snip-cut-y)) 0);
+	}
+
+	.snip-cut-layer-falling {
+		clip-path: inset(var(--snip-cut-y) 0 0 0);
+		animation: snip-paper-fall 4.2s cubic-bezier(0.2, 0.8, 0.28, 1) infinite;
+	}
+
+	.snip-paper-card {
+		position: absolute;
+		left: 0.25rem;
+		top: 0;
+		height: 28rem;
+		width: 22rem;
+		border: 1px solid rgb(255 255 255 / 0.06);
+		border-radius: 2.5rem;
+		background: linear-gradient(
+			145deg,
+			rgba(248, 248, 246, 0.96),
+			rgba(224, 223, 218, 0.9)
+		);
+		box-shadow:
+			0 28px 80px rgba(0, 0, 0, 0.45),
+			inset 0 1px 0 rgba(255, 255, 255, 0.95);
+	}
+
+	.snip-cut-copy {
+		position: absolute;
+		left: 8rem;
+		top: calc(var(--snip-cut-y) - 1.6rem);
+		margin: 0;
+		line-height: 1;
+		font-size: 3rem;
+		font-weight: 600;
+		letter-spacing: -0.04em;
+		color: rgb(0 0 0 / 0.7);
+	}
+
+	.snip-cut-line {
+		position: absolute;
+		left: 0;
+		top: var(--snip-cut-y);
+		width: 21.75rem;
+		border-top: 2px dashed rgb(168 85 247 / 0.55);
+		opacity: 0.8;
+	}
+
+	@keyframes snip-paper-fall {
+		0%,
+		18% {
+			opacity: 1;
+			transform: translate3d(0, 0, 0) rotate(0deg);
+		}
+
+		58% {
+			opacity: 1;
+			transform: translate3d(-0.3rem, 10rem, 0) rotate(-5deg);
+		}
+
+		72% {
+			opacity: 0;
+			transform: translate3d(-0.55rem, 16rem, 0) rotate(-8deg);
+		}
+
+		100% {
+			opacity: 0;
+			transform: translate3d(0, 0, 0) rotate(0deg);
+		}
+	}
+
+	@media (prefers-reduced-motion: reduce) {
+		.snip-cut-layer-falling {
+			animation: none;
+		}
+	}
+</style>
