@@ -12,6 +12,7 @@
 		import ScriptPanel from "$lib/components/sidebar/ScriptPanel.svelte";
 	import VideoPreview from "$lib/components/main/VideoPreview.svelte";
 	import * as Dialog from "$lib/components/ui/dialog";
+	import ClipTreeTimeline from "$lib/components/main/ClipTreeTimeline.svelte";
 	import { videoEditorState as editor } from "$lib/stores/video-editor.svelte";
 
 	let sidebarTab = $state<"transcript" | "script" | "cuts" | "settings">("transcript");
@@ -361,40 +362,15 @@
 							{/each}
 						</div>
 
-						<!-- Slot selectors -->
-						<div class="mx-4 mt-px flex min-h-0 flex-1 items-start gap-1 overflow-x-auto pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-							{#each editor.clipStripBeatBlocks as block (block.id)}
-								<div
-									class="flex min-w-[90px] flex-col gap-0.5"
-									style="width:{block.widthPct}%;"
-								>
-									<span class="truncate px-1 pt-1 font-mono text-[8px] uppercase tracking-[0.15em] text-snip-text-muted">
-										{block.beatId.replace(/^slot_/, "S")}
-									</span>
-									{#each block.variants as variant (variant.id)}
-											{@const isRetake = variant.label.toLowerCase().includes("retake")}
-										<button
-											type="button"
-											class="relative flex items-center justify-between gap-1 overflow-hidden border px-2 py-[3px] text-left transition-colors hover:border-primary/60 {variant.isSelected
-												? 'border-primary bg-primary/10'
-												: 'border-snip-border bg-snip-surface'}"
-											style="border-radius:4px;"
-											onclick={() => {
-												editor.selectSlotVariant(block.beatId, variant.variantId);
-												editor.seekTo(variant.start);
-											}}
-										>
-											<span class="truncate text-[10px] {variant.isSelected ? 'font-medium text-white' : isRetake ? 'italic text-snip-text-muted' : 'text-snip-text-secondary'}">
-												{variant.label}
-											</span>
-											<span class="shrink-0 font-mono text-[9px] text-snip-text-muted">
-												{editor.formatSegmentDuration(variant.durationMs)}
-											</span>
-										</button>
-									{/each}
-								</div>
-							{/each}
-						</div>
+						<!-- Slot selectors (tree timeline) -->
+						<ClipTreeTimeline
+							blocks={editor.clipStripBeatBlocks}
+							formatDuration={editor.formatSegmentDuration.bind(editor)}
+							onSelectVariant={(slotId, variantId, startMs) => {
+								editor.selectSlotVariant(slotId, variantId);
+								editor.seekTo(startMs);
+							}}
+						/>
 
 					{:else if editor.clipStripSegments.length > 0}
 						{@const labels = editor.timelineLabels}

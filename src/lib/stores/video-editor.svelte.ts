@@ -60,7 +60,7 @@ export interface EditorCutSegment extends Omit<AutocutAnalysisSegment, "category
 	locked: boolean;
 }
 
-interface EditorClipStripBeatBlock {
+export interface EditorClipStripBeatBlock {
 	id: string;
 	beatId: string;
 	widthPct: number;
