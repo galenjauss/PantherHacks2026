@@ -20,24 +20,7 @@ function isAllowedAudioUrl(raw: unknown): raw is string {
 	}
 }
 
-export const POST: RequestHandler = async ({ request }) => {
-	let payload: { audioUrl?: unknown };
-	try {
-		payload = (await request.json()) as { audioUrl?: unknown };
-	} catch {
-		return json({ error: "Expected JSON body" }, { status: 400 });
-	}
-
-	const { audioUrl } = payload;
-
-	if (!isAllowedAudioUrl(audioUrl)) {
-		return json(
-			{ error: "audioUrl must be an https URL on a Vercel Blob host" },
-			{ status: 400 }
-		);
-	}
-
-	// Submit transcription request directly — AssemblyAI will fetch the audio by URL.
+async function createTranscript(audioUrl: string) {
 	const transcriptRes = await fetch(`${ASSEMBLYAI_BASE}/transcript`, {
 		method: "POST",
 		headers: {
@@ -67,4 +50,59 @@ export const POST: RequestHandler = async ({ request }) => {
 		},
 		{ status: 201 }
 	);
+}
+
+export const POST: RequestHandler = async ({ request }) => {
+	const contentType = request.headers.get("content-type") ?? "";
+
+	// Dev / local fallback: accept a direct multipart upload and push it to AssemblyAI.
+	// Used when no Vercel Blob token is available (e.g. teammates not on the Vercel team).
+	if (contentType.includes("multipart/form-data")) {
+		const formData = await request.formData();
+		const file = formData.get("file");
+
+		if (!(file instanceof File)) {
+			return json({ error: "No file provided" }, { status: 400 });
+		}
+
+		const fileBuffer = await file.arrayBuffer();
+		const uploadRes = await fetch(`${ASSEMBLYAI_BASE}/upload`, {
+			method: "POST",
+			headers: {
+				Authorization: ASSEMBLYAI_API_KEY,
+				"Content-Type": "application/octet-stream"
+			},
+			body: fileBuffer
+		});
+
+		if (!uploadRes.ok) {
+			const err = await uploadRes.json().catch(() => ({}));
+			return json(
+				{ error: "Failed to upload to AssemblyAI", details: err },
+				{ status: 502 }
+			);
+		}
+
+		const { upload_url } = await uploadRes.json();
+		return createTranscript(upload_url);
+	}
+
+	// Production path: client uploads to Vercel Blob, then POSTs the blob URL here.
+	let payload: { audioUrl?: unknown };
+	try {
+		payload = (await request.json()) as { audioUrl?: unknown };
+	} catch {
+		return json({ error: "Expected JSON body or multipart form-data" }, { status: 400 });
+	}
+
+	const { audioUrl } = payload;
+
+	if (!isAllowedAudioUrl(audioUrl)) {
+		return json(
+			{ error: "audioUrl must be an https URL on a Vercel Blob host" },
+			{ status: 400 }
+		);
+	}
+
+	return createTranscript(audioUrl);
 };

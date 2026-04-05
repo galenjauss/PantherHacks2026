@@ -2415,19 +2415,32 @@ class VideoEditorState {
 
 		try {
 			const file = this.selectedFile;
-			const blob = await upload(file.name, file, {
-				access: "public",
-				handleUploadUrl: "/api/video/blob-upload",
-				contentType: file.type || "video/mp4"
-			});
+			let res: Response;
 
-			if (runId !== this.currentRun) return;
+			if (import.meta.env.DEV) {
+				// Dev path: upload directly as multipart. No Vercel Blob token needed.
+				const formData = new FormData();
+				formData.append("file", file);
+				res = await fetch("/api/video/transcribe", {
+					method: "POST",
+					body: formData
+				});
+			} else {
+				// Prod path: upload to Vercel Blob first, then pass the URL to the server.
+				const blob = await upload(file.name, file, {
+					access: "public",
+					handleUploadUrl: "/api/video/blob-upload",
+					contentType: file.type || "video/mp4"
+				});
 
-			const res = await fetch("/api/video/transcribe", {
-				method: "POST",
-				headers: { "Content-Type": "application/json" },
-				body: JSON.stringify({ audioUrl: blob.url, filename: file.name })
-			});
+				if (runId !== this.currentRun) return;
+
+				res = await fetch("/api/video/transcribe", {
+					method: "POST",
+					headers: { "Content-Type": "application/json" },
+					body: JSON.stringify({ audioUrl: blob.url, filename: file.name })
+				});
+			}
 
 			const data = (await res.json()) as { transcript_id?: string; status?: string; error?: string };
 
