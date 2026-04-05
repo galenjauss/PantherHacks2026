@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { goto } from "$app/navigation";
 	import { onMount } from "svelte";
+	import exampleVideoUrl from "$lib/assets/example_vid3.MOV";
 	import { Button } from "$lib/components/ui/button";
 	import { Input } from "$lib/components/ui/input";
 	import { videoEditorState as editor } from "$lib/stores/video-editor.svelte";
@@ -71,6 +72,25 @@
 
 		await editor.setFile(file);
 		await goto("/video-editor");
+	}
+
+	async function handleExampleVideoClick() {
+		clearActivationTimeout();
+		isActivating = true;
+
+		try {
+			const response = await fetch(exampleVideoUrl);
+			const blob = await response.blob();
+			const file = new File([blob], "example_vid3.MOV", {
+				type: blob.type || "video/quicktime",
+			});
+
+			await editor.setFile(file);
+			await goto("/video-editor");
+		} finally {
+			clearActivationTimeout();
+			isActivating = false;
+		}
 	}
 
 	onMount(() => {
@@ -189,7 +209,7 @@
 					>
 						<Button
 							size="lg"
-                            variant = "hero"
+							variant="hero"
 							class={`h-14 w-full rounded-[1.2rem] border bg-snip-surface-elevated px-6 text-base font-semibold text-white transition-all duration-200 ${
 								isDragging
 									? "border-primary/70"
@@ -211,7 +231,15 @@
 						</Button>
 					</div>
 
-					<p class="mt-4 text-sm text-snip-text-secondary">
+					<button
+						type="button"
+						class="mt-4 text-lg text-snip-text-secondary underline underline-offset-5 transition-colors duration-200 hover:text-primary"
+						onclick={handleExampleVideoClick}
+					>
+						Use an example video.
+					</button>
+
+					<p class="mt-10 text-sm text-snip-text-secondary">
 						Drag and drop audio or video, or click to upload
 					</p>
 				</div>
