@@ -169,11 +169,7 @@
 				"relative flex min-w-[140px] shrink-0 flex-col gap-2 rounded-sm border border-snip-border/85 px-2 py-2 shadow-[0_12px_28px_rgba(0,0,0,0.22)] transition-colors duration-300",
 				isPlaying ? "border-primary/50 ring-1 ring-primary/30" : ""
 			)}
-			style="
-				background:
-					linear-gradient(180deg, color-mix(in srgb, var(--snip-surface-elevated) 92%, white 2%) 0%, color-mix(in srgb, var(--snip-surface) 96%, black 4%) 100%);
-				backdrop-filter: blur(2px);
-			"
+			style="background-color: color-mix(in srgb, var(--snip-surface-elevated) 92%, white 4%);"
 			onmouseenter={() => (hoveredBeatId = block.beatId)}
 			onmouseleave={() => (hoveredBeatId = null)}
 		>
