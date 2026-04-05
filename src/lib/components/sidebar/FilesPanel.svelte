@@ -1,10 +1,10 @@
 <script lang="ts">
 	import { Button } from "$lib/components/ui/button";
 	import { Input } from "$lib/components/ui/input";
+	import { Spinner } from "$lib/components/ui/spinner";
 	import { videoEditorState as editor } from "$lib/stores/video-editor.svelte";
 	import FilmIcon from "@lucide/svelte/icons/film";
 	import FolderOpenIcon from "@lucide/svelte/icons/folder-open";
-	import LoaderCircleIcon from "@lucide/svelte/icons/loader-circle";
 
 	let inputRef = $state<HTMLInputElement | null>(null);
 
@@ -45,7 +45,7 @@
 				}`}
 			>
 				{#if editor.isBusy || editor.isSyncing}
-					<LoaderCircleIcon class="size-3.5 animate-spin" />
+					<Spinner class="size-3.5 shrink-0" />
 				{/if}
 				<span>{editor.statusLabel.toLowerCase()}</span>
 			</div>
