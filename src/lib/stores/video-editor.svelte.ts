@@ -86,6 +86,16 @@ export interface EditedTimelineBlock {
 	startMs: number;
 }
 
+export interface EditorTranscriptWord {
+	id: number;
+	text: string;
+	start: number;
+	end: number;
+	cut: "filler" | "pause" | "restart" | null;
+	keep: boolean;
+	segmentId: string | null;
+}
+
 const BEAT_COLORS = [
 	"#7c3aed", "#3b82f6", "#06b6d4", "#10b981", "#f59e0b",
 	"#ef4444", "#ec4899", "#8b5cf6", "#14b8a6", "#f97316"
@@ -222,6 +232,28 @@ function joinTexts(values: string[]): string {
 		.trim();
 }
 
+function buildExportFileName(fileName: string | undefined): string {
+	const baseName = fileName?.replace(/\.[^.]+$/, "") || "snip-export";
+
+	return `${baseName}-snip.mp4`;
+}
+
+function parseContentDispositionFileName(header: string | null): string | null {
+	if (!header) return null;
+
+	const utf8Match = header.match(/filename\*=UTF-8''([^;]+)/i);
+	if (utf8Match?.[1]) {
+		try {
+			return decodeURIComponent(utf8Match[1]);
+		} catch {
+			return utf8Match[1];
+		}
+	}
+
+	const basicMatch = header.match(/filename="([^"]+)"/i) ?? header.match(/filename=([^;]+)/i);
+	return basicMatch?.[1]?.trim() ?? null;
+}
+
 class VideoEditorState {
 	selectedFile = $state<File | null>(null);
 	videoUrl = $state<string | null>(null);
@@ -254,6 +286,8 @@ class VideoEditorState {
 	analysisError = $state("");
 	jobError = $state("");
 	job = $state<AutocutJob | null>(null);
+	exporting = $state(false);
+	exportError = $state("");
 
 	get selectedBeatVariantIds(): Record<string, string> {
 		return this.selectedSlotVariantIds;
@@ -309,6 +343,15 @@ class VideoEditorState {
 
 	get hasDebugExport(): boolean {
 		return this.transcriptWords.length > 0 || this.wordLabels.length > 0 || this.hasAnalysisLLMOutput;
+	}
+
+	get canExport(): boolean {
+		return Boolean(this.videoUrl && this.playbackSegments.length > 0 && !this.isBusy && !this.exporting);
+	}
+
+	get exportStatusLabel(): string {
+		if (this.exportError) return this.exportError;
+		return this.exporting ? "Rendering MP4..." : "";
 	}
 
 	private labelDebugRows(): DebugLabelRow[] {
@@ -479,11 +522,14 @@ class VideoEditorState {
 	get statusLabel(): string {
 		if (!this.selectedFile) return "Awaiting upload";
 		if (this.transcribing) return "Uploading to AssemblyAI";
-		if (this.pollingTranscript) {
-			if (this.normalizedTranscriptStatus === "queued") return "Queued for transcription";
-			return "Generating transcript";
-		}
 		if (this.analyzing) return "Analyzing transcript";
+		if (this.pollingTranscript) {
+			const s = this.normalizedTranscriptStatus;
+			if (s === "queued") return "Queued for transcription";
+			if (s === "processing") return "Transcribing audio";
+			return "Fetching transcript status";
+		}
+		if (this.creatingAutocutJob) return "Building cut preview";
 		if (this.isReady) return "Ready";
 		return "Queued";
 	}
@@ -493,15 +539,21 @@ class VideoEditorState {
 		if (this.transcribing) {
 			return "Uploading the clip to AssemblyAI.";
 		}
-		if (this.pollingTranscript) {
-			if (this.normalizedTranscriptStatus === "queued") {
-				return "The transcript request is queued. Processing will begin shortly.";
-			}
-
-			return "Generating word-level timestamps from AssemblyAI.";
-		}
 		if (this.analyzing) {
 			return "Finding cuts and labeling semantic content from the transcript.";
+		}
+		if (this.pollingTranscript) {
+			const s = this.normalizedTranscriptStatus;
+			if (s === "queued") {
+				return "The transcript request is queued. Processing will begin shortly.";
+			}
+			if (s === "processing") {
+				return "AssemblyAI is transcribing the audio and will return word-level timestamps.";
+			}
+			return "Checking transcription status with AssemblyAI.";
+		}
+		if (this.creatingAutocutJob) {
+			return "Sending your cut plan to the server to build the preview.";
 		}
 		if (this.isReady) {
 			return "Preview the selected slot mix, inspect pause chunks, and refine the cut plan.";
@@ -515,6 +567,7 @@ class VideoEditorState {
 		if (this.transcribing) return 1;
 		if (this.pollingTranscript) return 2;
 		if (this.analyzing) return 3;
+		if (this.creatingAutocutJob) return 4;
 		return 1;
 	}
 
@@ -753,6 +806,95 @@ class VideoEditorState {
 				} satisfies EditorCutSegment;
 			})
 			.filter((segment): segment is EditorCutSegment => Boolean(segment));
+	}
+
+	get transcriptPanelWords(): EditorTranscriptWord[] {
+		if (this.transcriptWords.length === 0) {
+			return [];
+		}
+
+		if (this.analysisSegments.length === 0) {
+			return this.transcriptWords.map((word, index) => ({
+				id: index,
+				text: word.text,
+				start: word.start,
+				end: word.end,
+				cut: null,
+				keep: true,
+				segmentId: null
+			}));
+		}
+
+		const selected = new Set(this.selectedCutIds);
+		const cutSegmentById = new Map(this.cutSegments.map((segment) => [segment.id, segment]));
+		const words: EditorTranscriptWord[] = [];
+		const syntheticIdOffset = this.transcriptWords.length + 1;
+
+		for (const [index, segment] of this.normalizedAnalysisSegments.entries()) {
+			const transcriptSegmentId = this.analysisSegmentRefs[index]?.id ?? segmentId(index);
+			const cutSegment = cutSegmentById.get(transcriptSegmentId);
+			const keep = !cutSegment || !this.isCutActive(cutSegment, selected);
+
+			if (segment.category === "dead_space") {
+				words.push({
+					id: syntheticIdOffset + index,
+					text: "",
+					start: segment.start,
+					end: segment.end,
+					cut: "pause",
+					keep,
+					segmentId: transcriptSegmentId
+				});
+				continue;
+			}
+
+			const startIndex = segment.wordStartIndex ?? -1;
+			const endIndex = segment.wordEndIndex ?? -1;
+			if (startIndex < 0 || endIndex < startIndex) continue;
+
+			for (let wordIndex = startIndex; wordIndex <= endIndex; wordIndex += 1) {
+				const word = this.transcriptWords[wordIndex];
+				if (!word) continue;
+
+				words.push({
+					id: wordIndex,
+					text: word.text,
+					start: word.start,
+					end: word.end,
+					cut:
+						segment.category === "filler_words"
+							? "filler"
+							: segment.category === "retake"
+								? "restart"
+								: null,
+					keep,
+					segmentId: cutSegment ? transcriptSegmentId : null
+				});
+			}
+		}
+
+		return words;
+	}
+
+	get activeTranscriptWordId(): number | null {
+		const currentTimeMs = this.currentTimeMs;
+		const words = this.transcriptPanelWords;
+
+		for (const [index, word] of words.entries()) {
+			const nextWord = words[index + 1];
+			const effectiveEnd = nextWord ? Math.max(word.end, nextWord.start) : word.end;
+
+			if (currentTimeMs >= word.start && currentTimeMs < effectiveEnd) {
+				return word.id;
+			}
+		}
+
+		const lastWord = words[words.length - 1];
+		if (lastWord && currentTimeMs >= lastWord.start) {
+			return lastWord.id;
+		}
+
+		return null;
 	}
 
 	get filteredCutSegments(): EditorCutSegment[] {
@@ -1357,6 +1499,74 @@ class VideoEditorState {
 		this.currentPreviewSegmentIndex = 0;
 	}
 
+	async exportSelectedCuts() {
+		if (!browser) return;
+		if (this.exporting) return;
+
+		const file = this.selectedFile;
+		const segments = this.playbackSegments;
+
+		if (!file || segments.length === 0) {
+			this.exportError = "No edited timeline is ready to export yet.";
+			return;
+		}
+
+		let exportUrl: string | null = null;
+
+		this.stopPreview();
+		this.exporting = true;
+		this.exportError = "";
+
+		try {
+			const formData = new FormData();
+			formData.append("file", file);
+			formData.append(
+				"segments",
+				JSON.stringify(
+					segments.map((segment) => ({
+						start: segment.start,
+						end: segment.end
+					}))
+				)
+			);
+			formData.append("fileName", file.name);
+
+			const response = await fetch("/api/video/export", {
+				method: "POST",
+				body: formData
+			});
+
+			if (!response.ok) {
+				const errorBody = (await response.json().catch(() => null)) as { error?: string } | null;
+				throw new Error(errorBody?.error ?? "Server export failed.");
+			}
+
+			const renderedBlob = await response.blob();
+			if (renderedBlob.size === 0) {
+				throw new Error("The server returned an empty MP4.");
+			}
+
+			exportUrl = URL.createObjectURL(renderedBlob);
+			const link = document.createElement("a");
+			link.href = exportUrl;
+			link.download =
+				parseContentDispositionFileName(response.headers.get("content-disposition")) ??
+				buildExportFileName(file.name);
+			link.click();
+		} catch (error) {
+			this.exportError = error instanceof Error ? error.message : "Export failed.";
+		} finally {
+			this.exporting = false;
+
+			if (exportUrl) {
+				const urlToRevoke = exportUrl;
+				window.setTimeout(() => {
+					URL.revokeObjectURL(urlToRevoke);
+				}, 30_000);
+			}
+		}
+	}
+
 	async setFile(file: File | null) {
 		if (!browser) return;
 
@@ -1375,7 +1585,7 @@ class VideoEditorState {
 		this.videoUrl = file ? URL.createObjectURL(file) : null;
 		this.videoDurationMs = null;
 		this.currentTimeMs = 0;
-		this.previewMode = "after";
+		this.previewMode = file ? "before" : "after";
 		this.activeFilter = "all";
 		this.selectedCutIds = [];
 		this.selectedSlotVariantIds = {};
@@ -1392,6 +1602,7 @@ class VideoEditorState {
 		this.transcriptError = "";
 		this.analysisError = "";
 		this.jobError = "";
+		this.exportError = "";
 		this.job = null;
 		this.cutToggles = {
 			filler_words: true,
@@ -1448,6 +1659,40 @@ class VideoEditorState {
 
 	clearSelectedCuts() {
 		this.selectedCutIds = [];
+	}
+
+	toggleTranscriptGroup(wordIds: number[]) {
+		const transcriptWords = this.transcriptPanelWords;
+		const segmentIds = [...new Set(
+			wordIds
+				.map((id) => transcriptWords.find((word) => word.id === id)?.segmentId ?? null)
+				.filter((segmentId): segmentId is string => Boolean(segmentId))
+		)];
+
+		if (segmentIds.length === 0) return;
+
+		const cutSegments = new Map(this.cutSegments.map((segment) => [segment.id, segment]));
+		const activeSelection = new Set(this.selectedCutIds);
+		const shouldRestore = segmentIds.every((id) => {
+			const segment = cutSegments.get(id);
+			return segment ? this.isCutActive(segment, activeSelection) : false;
+		});
+
+		if (shouldRestore) {
+			this.selectedCutIds = this.selectedCutIds.filter((id) => {
+				const segment = cutSegments.get(id);
+				return !segmentIds.includes(id) || Boolean(segment?.locked);
+			});
+			return;
+		}
+
+		const nextSelected = new Set(this.selectedCutIds);
+		for (const id of segmentIds) {
+			const segment = cutSegments.get(id);
+			if (!segment || segment.locked) continue;
+			nextSelected.add(id);
+		}
+		this.selectedCutIds = [...nextSelected];
 	}
 
 	selectSlotVariant(slotId: string, variantId: string) {
@@ -1593,6 +1838,10 @@ class VideoEditorState {
 		const video = this.videoElement;
 		if (!video) return;
 
+		await this.seekVideoElementTo(video, timeMs);
+	}
+
+	private async seekVideoElementTo(video: HTMLVideoElement, timeMs: number) {
 		const targetSeconds = Math.max(timeMs, 0) / 1000;
 		if (Math.abs(video.currentTime - targetSeconds) <= PREVIEW_EPSILON_MS / 1000) {
 			return;
@@ -1796,6 +2045,7 @@ class VideoEditorState {
 						return;
 					}
 
+					this.pollingTranscript = false;
 					await this.analyzeTranscript(runId);
 					return;
 				}

@@ -82,7 +82,7 @@
 	let container: HTMLDivElement | undefined;
 
 	$effect(() => {
-		const id = isPlaying ? activeWordId : null;
+		const id = activeWordId;
 		if (id === null) return;
 		tick().then(() => {
 			if (!container) return;
@@ -95,7 +95,7 @@
 					if (ids.includes(id)) { elem = chip; break; }
 				}
 			}
-			elem?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+			elem?.scrollIntoView({ behavior: isPlaying ? 'smooth' : 'auto', block: 'nearest' });
 		});
 	});
 

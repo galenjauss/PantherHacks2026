@@ -9,7 +9,8 @@
 
 	import SnipAIPanel from "$lib/components/sidebar/SnipAIPanel.svelte";
 	import CutSettingsPanel from "$lib/components/sidebar/CutSettingsPanel.svelte";
-		import ScriptPanel from "$lib/components/sidebar/ScriptPanel.svelte";
+	import ScriptPanel from "$lib/components/sidebar/ScriptPanel.svelte";
+	import TranscriptPanel from "$lib/components/sidebar/TranscriptPanel.svelte";
 	import VideoPreview from "$lib/components/main/VideoPreview.svelte";
 	import * as Dialog from "$lib/components/ui/dialog";
 	import ClipTreeTimeline from "$lib/components/main/ClipTreeTimeline.svelte";
@@ -18,13 +19,31 @@
 	let sidebarTab = $state<"transcript" | "script" | "cuts" | "settings">("transcript");
 	let showStatsDialog = $state(false);
 	let wasBusy = $state(false);
+	let prevTranscriptWordCount = $state(0);
 
 	$effect(() => {
 		const busy = editor.isBusy;
+		if (busy) {
+			editor.setPreviewMode("before");
+		} else if (wasBusy && !busy && editor.wordLabels.length > 0) {
+			editor.setPreviewMode("after");
+		}
 		if (wasBusy && !busy && editor.totalDurationMs > 0) {
 			showStatsDialog = true;
 		}
 		wasBusy = busy;
+	});
+
+	$effect(() => {
+		const n = editor.transcriptPanelWords.length;
+		if (n === 0) {
+			prevTranscriptWordCount = 0;
+			return;
+		}
+		if (prevTranscriptWordCount === 0 && n > 0) {
+			sidebarTab = "transcript";
+		}
+		prevTranscriptWordCount = n;
 	});
 
 	function handleSeekSlot(_slotId: string, startMs: number) {
@@ -32,6 +51,7 @@
 	}
 
 	import ScissorsIcon from "@lucide/svelte/icons/scissors";
+	import DownloadIcon from "@lucide/svelte/icons/download";
 	import UploadIcon from "@lucide/svelte/icons/upload";
 
 	let topBarFileInput = $state<HTMLInputElement | null>(null);
@@ -91,23 +111,48 @@
 		</a>
 
 		<!-- Upload button -->
-		<div class="ml-auto hidden md:flex">
+		<div class="ml-auto flex items-center gap-3">
+			{#if editor.exportStatusLabel}
+				<p
+					class={`hidden text-[11px] md:block ${editor.exportError ? "text-red-400" : "text-snip-text-muted"}`}
+				>
+					{editor.exportStatusLabel}
+				</p>
+			{/if}
+
 			<Button
 				variant="outline"
 				size="sm"
 				class="border-snip-border bg-snip-surface text-snip-text-primary transition-transform hover:scale-[1.03] hover:bg-snip-surface-elevated active:scale-95"
-				onclick={() => topBarFileInput?.click()}
+				disabled={!editor.canExport}
+				onclick={() => void editor.exportSelectedCuts()}
 			>
-				<UploadIcon class="mr-1.5 size-3.5" stroke-width={2} />
-				<span class="font-display text-xs font-semibold">{editor.selectedFile ? "New Upload" : "Upload"}</span>
+				<DownloadIcon class="mr-1.5 size-3.5" stroke-width={2} />
+				<span class="font-display text-xs font-semibold">
+					{editor.exporting ? "Exporting" : "Export"}
+				</span>
 			</Button>
-			<input
-				bind:this={topBarFileInput}
-				type="file"
-				accept="video/*,audio/*"
-				class="hidden"
-				onchange={handleTopBarFileChange}
-			/>
+
+			<div class="hidden md:flex">
+				<Button
+					variant="outline"
+					size="sm"
+					class="border-snip-border bg-snip-surface text-snip-text-primary transition-transform hover:scale-[1.03] hover:bg-snip-surface-elevated active:scale-95"
+					onclick={() => topBarFileInput?.click()}
+				>
+					<UploadIcon class="mr-1.5 size-3.5" stroke-width={2} />
+					<span class="font-display text-xs font-semibold">
+						{editor.selectedFile ? "New Upload" : "Upload"}
+					</span>
+				</Button>
+				<input
+					bind:this={topBarFileInput}
+					type="file"
+					accept="video/*,audio/*"
+					class="hidden"
+					onchange={handleTopBarFileChange}
+				/>
+			</div>
 		</div>
 	</header>
 
@@ -118,10 +163,31 @@
 					<Resizable.Pane defaultSize={25} minSize={15} maxSize={40}>
 						<aside class="flex h-full flex-col overflow-hidden border-r border-snip-border bg-snip-surface">
 							{#if editor.isBusy}
-								<div class="flex min-h-0 flex-1 flex-col overflow-y-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-									<div transition:fade={{ duration: 180 }} class="flex shrink-0 flex-col">
+								<div class="flex min-h-0 flex-1 flex-col overflow-hidden">
+									<div
+										transition:fade={{ duration: 180 }}
+										class={`shrink-0 border-b border-snip-border ${
+											editor.transcriptPanelWords.length > 0
+												? "max-h-[min(260px,42vh)] overflow-y-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+												: "min-h-0 flex-1 overflow-y-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+										}`}
+									>
 										<SnipAIPanel />
 									</div>
+									{#if editor.transcriptPanelWords.length > 0}
+										<div
+											class="flex min-h-0 flex-1 flex-col overflow-hidden border-t border-snip-border"
+											transition:fade={{ duration: 200 }}
+										>
+											<TranscriptPanel
+												words={editor.transcriptPanelWords}
+												activeWordId={editor.activeTranscriptWordId}
+												isPlaying={editor.isPreviewPlaying}
+												onToggleGroup={(ids) => editor.toggleTranscriptGroup(ids)}
+												onSeek={(timeMs) => editor.seekTo(timeMs)}
+											/>
+										</div>
+									{/if}
 								</div>
 							{:else}
 								<!-- Tab bar -->
@@ -159,19 +225,23 @@
 								<!-- Tab content -->
 								<div class="flex min-h-0 flex-1 flex-col overflow-y-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
 									{#if sidebarTab === "transcript"}
-										<div class="flex flex-col gap-3 px-4 py-4">
-											{#if editor.transcriptText}
-												<p class="whitespace-pre-wrap text-[12px] leading-[1.7] text-snip-text-primary">
-													{editor.transcriptText}
-												</p>
-											{:else}
+										{#if editor.transcriptPanelWords.length > 0}
+											<TranscriptPanel
+												words={editor.transcriptPanelWords}
+												activeWordId={editor.activeTranscriptWordId}
+												isPlaying={editor.isPreviewPlaying}
+												onToggleGroup={(ids) => editor.toggleTranscriptGroup(ids)}
+												onSeek={(timeMs) => editor.seekTo(timeMs)}
+											/>
+										{:else}
+											<div class="flex flex-col gap-3 px-4 py-4">
 												<p class="text-[12px] text-snip-text-muted">
 													{editor.selectedFile
 														? "Transcript will appear here once processing completes."
 														: "Upload a video to generate a transcript."}
 												</p>
-											{/if}
-										</div>
+											</div>
+										{/if}
 
 									{:else if sidebarTab === "script"}
 										<ScriptPanel onSeekSlot={handleSeekSlot} />
