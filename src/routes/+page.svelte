@@ -86,9 +86,36 @@
 	/>
 </svelte:head>
 
-<div class="dark min-h-svh bg-snip-bg text-snip-text-primary">
+<div class="dark relative min-h-svh overflow-x-clip bg-snip-bg text-snip-text-primary">
+	<div class="pointer-events-none absolute inset-0 top-[7rem]">
+		<div class="mx-auto h-full w-full max-w-7xl px-4 sm:px-5 lg:px-8">
+			<div class="relative h-[calc(100svh-7rem)]">
+				<div
+					class="absolute left-[-5%] top-[22%] h-112 w-88 -rotate-12 rounded-[2.5rem] border border-white/6 bg-[linear-gradient(145deg,rgba(248,248,246,0.96),rgba(224,223,218,0.9))] shadow-[0_28px_80px_rgba(0,0,0,0.45),inset_0_1px_0_rgba(255,255,255,0.95)]"
+				></div>
+
+				<div
+					class="absolute left-[0%] top-[47%] h-px w-69 -rotate-12 border-t-2 border-dashed border-primary/55 opacity-80"
+				></div>
+
+				<div class="absolute left-[20%] top-[33%] rotate-155">
+					<div class="relative">
+						<div
+							class="absolute inset-0 rounded-full bg-primary/25 blur-2xl"
+						></div>
+						<div
+							class="relative flex size-23 items-center justify-center rounded-full bg-[linear-gradient(145deg,#bb6cff,#7c3aed)] text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.28),0_20px_36px_rgba(124,58,237,0.28)]"
+						>
+							<ScissorsIcon class="size-12" stroke-width={2.4} />
+						</div>
+					</div>
+				</div>
+			</div>
+		</div>
+	</div>
+
 	<div
-		class="mx-auto flex min-h-svh w-full max-w-7xl flex-col px-4 py-4 sm:px-5 lg:px-8"
+		class="relative z-10 mx-auto flex min-h-svh w-full max-w-7xl flex-col px-4 py-4 sm:px-5 lg:px-8"
 	>
 		<header class="z-20 py-4">
 			<div class="flex items-center gap-3">
@@ -111,31 +138,8 @@
 		</header>
 
 		<section
-			class="relative flex min-h-[calc(100svh-7rem)] items-center justify-center overflow-hidden py-16 sm:py-20"
+			class="relative flex min-h-[calc(100svh-7rem)] items-center justify-center py-16 sm:py-20"
 		>
-			<div class="pointer-events-none absolute inset-0 overflow-hidden">
-				<div
-					class="absolute left-[-5%] top-[22%] h-112 w-88 -rotate-12 rounded-[2.5rem] border border-white/6 bg-[linear-gradient(145deg,rgba(248,248,246,0.96),rgba(224,223,218,0.9))] shadow-[0_28px_80px_rgba(0,0,0,0.45),inset_0_1px_0_rgba(255,255,255,0.95)]"
-				></div>
-				
-				<div
-					class="absolute left-[0%] top-[47%] h-px w-69 -rotate-12 border-t-2 border-dashed border-primary/55 opacity-80"
-				></div>
-
-				<div class="absolute left-[20%] top-[33%] rotate-155">
-					<div class="relative">
-						<div
-							class="absolute inset-0 rounded-full bg-primary/25 blur-2xl"
-						></div>
-						<div
-							class="relative flex size-23 items-center justify-center rounded-full bg-[linear-gradient(145deg,#bb6cff,#7c3aed)] text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.28),0_20px_36px_rgba(124,58,237,0.28)]"
-						>
-							<ScissorsIcon class="size-12" stroke-width={2.4} />
-						</div>
-					</div>
-				</div>
-
-			</div>
 
 			<div
 				class="relative z-10 flex w-full max-w-4xl flex-col items-center text-center"
