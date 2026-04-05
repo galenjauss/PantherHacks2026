@@ -13,8 +13,6 @@
 	let inputRef = $state<HTMLInputElement | null>(null);
 	let activationTimeout: ReturnType<typeof setTimeout> | null = null;
 
-	const navItems = ["How it works", "Examples", "Results preview"];
-
 	function clearActivationTimeout() {
 		if (!activationTimeout) return;
 		clearTimeout(activationTimeout);
@@ -92,9 +90,7 @@
 	<div
 		class="mx-auto flex min-h-svh w-full max-w-7xl flex-col px-4 py-4 sm:px-5 lg:px-8"
 	>
-		<header
-			class="sticky top-4 z-20 flex items-center justify-between gap-6 rounded-full border border-snip-border bg-snip-surface/95 px-4 py-3 backdrop-blur"
-		>
+		<header class="z-20 py-4">
 			<div class="flex items-center gap-3">
 				<div
 					class="flex size-10 items-center justify-center rounded-2xl bg-primary text-primary-foreground shadow-[inset_0_1px_0_rgba(255,255,255,0.18),0_10px_24px_rgba(124,58,237,0.25)]"
@@ -112,19 +108,6 @@
 					</p>
 				</div>
 			</div>
-
-			<nav class="hidden items-center gap-1 md:flex">
-				{#each navItems as item}
-					<button
-						type="button"
-						class="rounded-full px-4 py-2 text-sm text-snip-text-secondary transition-colors hover:text-white"
-					>
-						{item}
-					</button>
-				{/each}
-			</nav>
-
-			<div class="w-10 md:hidden"></div>
 		</header>
 
 		<section
@@ -132,34 +115,26 @@
 		>
 			<div class="pointer-events-none absolute inset-0 overflow-hidden">
 				<div
-					class="absolute left-[8%] top-[22%] h-112 w-88 -rotate-12 rounded-[2.5rem] border border-white/6 bg-[linear-gradient(145deg,rgba(248,248,246,0.96),rgba(224,223,218,0.9))] shadow-[0_28px_80px_rgba(0,0,0,0.45),inset_0_1px_0_rgba(255,255,255,0.95)]"
+					class="absolute left-[-5%] top-[22%] h-112 w-88 -rotate-12 rounded-[2.5rem] border border-white/6 bg-[linear-gradient(145deg,rgba(248,248,246,0.96),rgba(224,223,218,0.9))] shadow-[0_28px_80px_rgba(0,0,0,0.45),inset_0_1px_0_rgba(255,255,255,0.95)]"
 				></div>
+				
 				<div
-					class="absolute left-[10%] top-[25%] h-112 w-88 -rotate-12 rounded-[2.5rem] bg-[radial-gradient(circle_at_top_left,rgba(255,255,255,0.75),transparent_34%),linear-gradient(145deg,rgba(241,240,235,0.8),rgba(210,208,202,0.72))] opacity-70"
-				></div>
-				<div
-					class="absolute left-[19%] top-[34%] h-40 w-40 rounded-full bg-white/10 blur-3xl"
-				></div>
-				<div
-					class="absolute left-[24%] top-[22%] h-84 w-px rotate-26 border-l-2 border-dashed border-primary/55 opacity-80"
+					class="absolute left-[0%] top-[47%] h-px w-69 -rotate-12 border-t-2 border-dashed border-primary/55 opacity-80"
 				></div>
 
-				<div class="absolute left-[20%] top-[29%] rotate-16">
+				<div class="absolute left-[20%] top-[33%] rotate-155">
 					<div class="relative">
 						<div
 							class="absolute inset-0 rounded-full bg-primary/25 blur-2xl"
 						></div>
 						<div
-							class="relative flex size-24 items-center justify-center rounded-full bg-[linear-gradient(145deg,#bb6cff,#7c3aed)] text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.28),0_20px_36px_rgba(124,58,237,0.28)]"
+							class="relative flex size-23 items-center justify-center rounded-full bg-[linear-gradient(145deg,#bb6cff,#7c3aed)] text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.28),0_20px_36px_rgba(124,58,237,0.28)]"
 						>
 							<ScissorsIcon class="size-12" stroke-width={2.4} />
 						</div>
 					</div>
 				</div>
 
-				<div
-					class="absolute right-[9%] bottom-[16%] h-96 w-[18rem] rotate-[8deg] rounded-[2.75rem] border border-white/5 bg-[linear-gradient(145deg,rgba(248,248,246,0.12),rgba(255,255,255,0.02))] shadow-[0_20px_80px_rgba(0,0,0,0.32)] opacity-50"
-				></div>
 			</div>
 
 			<div
