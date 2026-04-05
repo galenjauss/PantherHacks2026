@@ -347,9 +347,6 @@
 		style="
 			touch-action:none;
 			user-select:none;
-			background-color: color-mix(in srgb, var(--snip-surface) 88%, transparent);
-			background-image: radial-gradient(circle at 1px 1px, rgba(148, 163, 184, 0.2) 1px, transparent 0);
-			background-size: 18px 18px;
 		"
 		onpointerdown={onGrabPointerDown}
 		onpointermove={onGrabPointerMove}
@@ -360,8 +357,14 @@
 
 	<div
 		bind:this={contentTrackEl}
-		class="relative z-10 flex min-h-full items-center gap-8 px-4 py-4 pb-2"
-		style={`width:max-content;min-width:calc(100% + ${PAN_GUTTER_PX * 2}px);`}
+		class="pointer-events-none relative z-10 flex min-h-full items-center gap-8 px-4 py-4 pb-2"
+		style={`
+			width:max-content;
+			min-width:calc(100% + ${PAN_GUTTER_PX * 2}px);
+			background-color: color-mix(in srgb, var(--snip-surface) 88%, transparent);
+			background-image: radial-gradient(circle at 1px 1px, rgba(148, 163, 184, 0.2) 1px, transparent 0);
+			background-size: 18px 18px;
+		`}
 	>
 		<div
 			aria-hidden="true"
@@ -376,7 +379,7 @@
 			<!-- svelte-ignore a11y_no_static_element_interactions -->
 			<div
 				class={cn(
-					"relative flex min-w-[140px] shrink-0 flex-col gap-2 rounded-sm border border-snip-border/85 px-2 py-2 shadow-[0_12px_28px_rgba(0,0,0,0.22)] transition-colors duration-300",
+					"pointer-events-auto relative flex min-w-[140px] shrink-0 flex-col gap-2 rounded-sm border border-snip-border/85 px-2 py-2 shadow-[0_12px_28px_rgba(0,0,0,0.22)] transition-colors duration-300",
 					isPlaying ? "border-primary/50 ring-1 ring-primary/30" : ""
 				)}
 				style="background-color: color-mix(in srgb, var(--snip-surface-elevated) 92%, white 4%);"
