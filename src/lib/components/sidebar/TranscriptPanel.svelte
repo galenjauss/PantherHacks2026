@@ -8,6 +8,10 @@
 		end: number;
 		cut: 'filler' | 'pause' | 'restart' | null;
 		keep: boolean;
+		lineLabel?: string | null;
+		slotLabel?: string | null;
+		playOrder?: number | null;
+		showPlayMarker?: boolean;
 	}
 
 	type PlainToken = { type: 'plain'; word: Word };
@@ -16,7 +20,14 @@
 		words: Word[];
 		cutType: 'filler' | 'pause' | 'restart';
 	};
-	type Token = PlainToken | ChipToken;
+	type MarkerToken = {
+		type: 'marker';
+		wordId: number;
+		lineLabel: string | null;
+		slotLabel: string | null;
+		playOrder: number;
+	};
+	type Token = PlainToken | ChipToken | MarkerToken;
 
 	let {
 		words,
@@ -34,9 +45,9 @@
 
 	// ── Cut type palette ──────────────────────────────────────────────────────
 	const CUT_RGB: Record<string, string> = {
-		filler:  '245,158,11',
+		filler:  '128,138,150',
 		pause:   '239,68,68',
-		restart: '168,85,247',
+		restart: '128,138,150',
 	};
 
 	const CUT_LABEL: Record<string, string> = {
@@ -53,6 +64,15 @@
 		let i = 0;
 		while (i < words.length) {
 			const w = words[i];
+			if (w.showPlayMarker && typeof w.playOrder === 'number') {
+				result.push({
+					type: 'marker',
+					wordId: w.id,
+					lineLabel: w.lineLabel ?? null,
+					slotLabel: w.slotLabel ?? null,
+					playOrder: w.playOrder,
+				});
+			}
 			if (w.cut !== null) {
 				const cutType = w.cut;
 				const run: Word[] = [w];
@@ -82,7 +102,7 @@
 	let container: HTMLDivElement | undefined;
 
 	$effect(() => {
-		const id = isPlaying ? activeWordId : null;
+		const id = activeWordId;
 		if (id === null) return;
 		tick().then(() => {
 			if (!container) return;
@@ -95,7 +115,7 @@
 					if (ids.includes(id)) { elem = chip; break; }
 				}
 			}
-			elem?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+			elem?.scrollIntoView({ behavior: isPlaying ? 'smooth' : 'auto', block: 'nearest' });
 		});
 	});
 
@@ -119,24 +139,27 @@
 	function chipStyle(chip: ChipToken): string {
 		const active   = chipIsActive(chip);
 		const restored = chipIsRestored(chip);
+		const isPause = chip.cutType === 'pause';
 
-		// Non-active restored: subtle ghost state
 		if (restored && !active) {
-			return 'background:transparent;border:1px solid #2a2a2a;color:#555;';
+			return `background:${isPause ? 'rgba(239,68,68,0.05)' : 'rgba(148,163,184,0.05)'};border:1px solid rgba(148,163,184,0.12);color:#65707c;`;
 		}
 
 		const rgb   = active ? '200,241,53' : CUT_RGB[chip.cutType];
-		const color = active ? '#c8f135'    : `rgb(${CUT_RGB[chip.cutType]})`;
-		// Active+restored gets lighter bg than active+removed
-		const bgAlpha = restored ? 0.1 : 0.18;
+		const color = active
+			? '#c8f135'
+			: isPause
+				? '#f29a9a'
+				: '#86919d';
+		const bgAlpha = active ? 0.14 : restored ? 0.08 : isPause ? 0.12 : 0.1;
 
 		const parts = [
 			`background:rgba(${rgb},${bgAlpha})`,
-			`border:1px solid rgba(${rgb},0.33)`,
+			`border:1px solid rgba(${rgb},${active ? 0.34 : isPause ? 0.22 : 0.16})`,
 			`color:${color}`,
 		];
 
-		if (!restored) {
+		if (!restored && !isPause) {
 			parts.push(
 				'text-decoration-line:line-through',
 				`text-decoration-color:rgba(${rgb},0.55)`
@@ -149,6 +172,12 @@
 	function chipTooltip(chip: ChipToken): string {
 		const verb = chipIsRestored(chip) ? 'remove' : 'restore';
 		return `Click to ${verb} this ${CUT_LABEL[chip.cutType]}`;
+	}
+
+	function tokenKey(token: Token, index: number): string {
+		if (token.type === 'plain') return `plain-${token.word.id}`;
+		if (token.type === 'chip') return `chip-${token.words[0]?.id ?? index}`;
+		return `marker-${token.wordId}`;
 	}
 </script>
 
@@ -172,8 +201,16 @@
 		class="flex-1 overflow-y-auto [&::-webkit-scrollbar]:hidden"
 		style="padding:20px 24px;line-height:2.2;font-size:15px;font-family:'DM Mono',monospace;color:#d4d4d4;scrollbar-width:none;"
 	>
-		{#each tokens as token}
-			{#if token.type === 'plain'}
+		{#each tokens as token, index (tokenKey(token, index))}
+			{#if token.type === 'marker'}
+				<span class="play-marker">
+					<span class="play-marker__order">{token.playOrder}</span>
+					<span class="play-marker__label">{token.slotLabel ?? 'Kept slot'}</span>
+					{#if token.lineLabel}
+						<span class="play-marker__meta">{token.lineLabel}</span>
+					{/if}
+				</span>{' '}
+			{:else if token.type === 'plain'}
 				<!-- Plain keep-word: click-to-seek, karaoke highlight when active -->
 				<span
 					data-word-id={token.word.id}
@@ -181,7 +218,7 @@
 					tabindex="0"
 					class="word-token"
 					style={activeWordId === token.word.id
-						? 'color:#c8f135;background:rgba(200,241,53,0.1);border-radius:2px;'
+						? 'color:#f5ffd6;background:rgba(200,241,53,0.18);box-shadow:inset 0 0 0 1px rgba(200,241,53,0.22);border-radius:5px;'
 						: ''}
 					onclick={() => onSeek(token.word.start)}
 					onkeydown={(e) => { if (e.key === 'Enter') onSeek(token.word.start); }}
@@ -216,14 +253,56 @@
 	/* ── Plain word tokens ─────────────────────────────────────────────────── */
 	.word-token {
 		cursor: pointer;
-		border-radius: 2px;
-		padding: 0 1px;
-		transition: color 150ms, background-color 150ms;
+		border-radius: 5px;
+		padding: 1px 3px;
+		background: rgba(148, 163, 184, 0.07);
+		box-shadow: inset 0 0 0 1px rgba(148, 163, 184, 0.08);
+		color: #d7dde5;
+		transition: color 150ms, background-color 150ms, box-shadow 150ms;
 	}
 
 	.word-token:hover {
-		text-decoration: underline;
-		text-decoration-color: rgba(255, 255, 255, 0.2);
+		background: rgba(148, 163, 184, 0.11);
+		box-shadow: inset 0 0 0 1px rgba(148, 163, 184, 0.14);
+	}
+
+	.play-marker {
+		display: inline-flex;
+		align-items: center;
+		gap: 6px;
+		margin: 0 8px 0 2px;
+		padding: 2px 8px 2px 3px;
+		border-radius: 999px;
+		background: rgba(91, 192, 190, 0.1);
+		border: 1px solid rgba(91, 192, 190, 0.18);
+		color: #9ad9d7;
+		vertical-align: middle;
+	}
+
+	.play-marker__order {
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		width: 18px;
+		height: 18px;
+		border-radius: 999px;
+		background: rgba(91, 192, 190, 0.18);
+		color: #dffaf8;
+		font-size: 10px;
+		font-weight: 700;
+		line-height: 1;
+	}
+
+	.play-marker__label {
+		font-size: 10px;
+		font-weight: 600;
+		letter-spacing: 0.04em;
+		text-transform: uppercase;
+	}
+
+	.play-marker__meta {
+		font-size: 10px;
+		color: rgba(154, 217, 215, 0.72);
 	}
 
 	/* ── Cut-run chips ─────────────────────────────────────────────────────── */

@@ -174,11 +174,14 @@
 			<ToggleGroup.Root
 				type="single"
 				value={editor.previewMode}
+				disabled={editor.isBusy}
 				onValueChange={(value) => {
 					if (value)
 						editor.setPreviewMode(value as "before" | "after");
 				}}
-				class="flex items-center gap-0.5 rounded-full border border-snip-border/50 bg-snip-bg/60 p-0.5"
+				class="flex items-center gap-0.5 rounded-full border border-snip-border/50 bg-snip-bg/60 p-0.5 {editor.isBusy
+					? 'pointer-events-none opacity-40'
+					: ''}"
 				spacing={4}
 			>
 				<ToggleGroup.Item
@@ -202,7 +205,7 @@
 				)}
 				<div class="mx-0.5 h-4 w-px bg-snip-border/40"></div>
 				<div
-					class="flex items-center gap-2.5 text-xs tabular-nums tracking-tight text-snip-text-muted"
+					class="flex items-center gap-2.5 text-[13px] tabular-nums tracking-tight text-snip-text-muted"
 				>
 					<span>
 						<span class="font-semibold text-primary"
