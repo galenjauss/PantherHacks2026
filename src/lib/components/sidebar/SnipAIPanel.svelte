@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { Spinner } from "$lib/components/ui/spinner";
 	import { videoEditorState as editor } from "$lib/stores/video-editor.svelte";
 
 	const total = $derived(editor.workflowSteps.length);
@@ -12,7 +13,7 @@
 
 	<div class="flex items-center gap-2.5">
 		{#if editor.isBusy}
-			<span class="spinner size-[14px] flex-shrink-0"></span>
+			<Spinner class="size-3.5 shrink-0 text-primary" />
 		{:else}
 			<span class="size-[8px] flex-shrink-0 rounded-full bg-green-500"></span>
 		{/if}
@@ -33,7 +34,7 @@
 		{#each steps as step, index (`workflow-step-${index}-${step.label}`)}
 			<li class="flex h-9 items-center gap-3">
 				{#if step.state === "active"}
-					<span class="spinner-sm size-[16px] shrink-0"></span>
+					<Spinner class="size-4 shrink-0 text-primary" />
 				{:else if step.state === "done"}
 					<span class="flex size-[16px] shrink-0 items-center justify-center rounded-full bg-green-500/15 text-[11px] font-bold leading-none text-green-400">
 						&#10003;
@@ -57,28 +58,6 @@
 </div>
 
 <style>
-	.spinner {
-		border: 2px solid transparent;
-		border-top-color: #7c3aed;
-		border-right-color: #7c3aed;
-		border-radius: 50%;
-		animation: spin 0.8s linear infinite;
-	}
-
-	@keyframes spin {
-		to {
-			transform: rotate(360deg);
-		}
-	}
-
-	.spinner-sm {
-		border: 2px solid rgba(124, 58, 237, 0.2);
-		border-top-color: #7c3aed;
-		border-right-color: #7c3aed;
-		border-radius: 50%;
-		animation: spin 0.8s linear infinite;
-	}
-
 	.shimmer-track {
 		background: linear-gradient(90deg, transparent 0%, rgba(255, 255, 255, 0.25) 50%, transparent 100%);
 		animation: shimmer-slide 1.8s ease-in-out infinite;
