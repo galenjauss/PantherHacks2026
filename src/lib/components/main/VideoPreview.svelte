@@ -202,7 +202,7 @@
 				)}
 				<div class="mx-0.5 h-4 w-px bg-snip-border/40"></div>
 				<div
-					class="flex items-center gap-2.5 text-xs tabular-nums tracking-tight text-snip-text-muted"
+					class="flex items-center gap-2.5 text-[13px] tabular-nums tracking-tight text-snip-text-muted"
 				>
 					<span>
 						<span class="font-semibold text-primary"
