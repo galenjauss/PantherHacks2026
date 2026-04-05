@@ -105,7 +105,7 @@ export const DEFAULT_VIDEO_SUBTITLE_STYLE: VideoSubtitleStyle = {
 	bgColor: VIDEO_SUBTITLE_BG_COLOR_HEX,
 	bgOpacity: 0.62,
 	outlineColor: VIDEO_SUBTITLE_OUTLINE_COLOR_HEX,
-	outlineThickness: 2.8,
+	outlineThickness: 0,
 	maxWordsPerCue: 8,
 	maxGapMs: 420,
 	maxDurationMs: 2_600,

@@ -1,12 +1,12 @@
 <script lang="ts">
-	import { tick } from 'svelte';
+	import { tick } from "svelte";
 
 	export interface Word {
 		id: number;
 		text: string;
 		start: number;
 		end: number;
-		cut: 'filler' | 'pause' | 'restart' | null;
+		cut: "filler" | "pause" | "restart" | null;
 		keep: boolean;
 		lineLabel?: string | null;
 		slotLabel?: string | null;
@@ -14,14 +14,14 @@
 		showPlayMarker?: boolean;
 	}
 
-	type PlainToken = { type: 'plain'; word: Word };
+	type PlainToken = { type: "plain"; word: Word };
 	type ChipToken = {
-		type: 'chip';
+		type: "chip";
 		words: Word[];
-		cutType: 'filler' | 'pause' | 'restart';
+		cutType: "filler" | "pause" | "restart";
 	};
 	type MarkerToken = {
-		type: 'marker';
+		type: "marker";
 		wordId: number;
 		lineLabel: string | null;
 		slotLabel: string | null;
@@ -45,15 +45,15 @@
 
 	// ── Cut type palette ──────────────────────────────────────────────────────
 	const CUT_RGB: Record<string, string> = {
-		filler:  '128,138,150',
-		pause:   '239,68,68',
-		restart: '128,138,150',
+		filler: "128,138,150",
+		pause: "239,68,68",
+		restart: "128,138,150",
 	};
 
 	const CUT_LABEL: Record<string, string> = {
-		filler:  'filler word',
-		pause:   'dead pause',
-		restart: 'false start',
+		filler: "filler word",
+		pause: "dead pause",
+		restart: "false start",
 	};
 
 	// ── Token grouping ────────────────────────────────────────────────────────
@@ -64,9 +64,9 @@
 		let i = 0;
 		while (i < words.length) {
 			const w = words[i];
-			if (w.showPlayMarker && typeof w.playOrder === 'number') {
+			if (w.showPlayMarker && typeof w.playOrder === "number") {
 				result.push({
-					type: 'marker',
+					type: "marker",
 					wordId: w.id,
 					lineLabel: w.lineLabel ?? null,
 					slotLabel: w.slotLabel ?? null,
@@ -81,10 +81,10 @@
 					run.push(words[j]);
 					j++;
 				}
-				result.push({ type: 'chip', words: run, cutType });
+				result.push({ type: "chip", words: run, cutType });
 				i = j;
 			} else {
-				result.push({ type: 'plain', word: w });
+				result.push({ type: "plain", word: w });
 				i++;
 			}
 		}
@@ -94,8 +94,8 @@
 	// ── Stats ─────────────────────────────────────────────────────────────────
 	const totalCutMs = $derived(
 		words
-			.filter(w => w.cut !== null && !w.keep)
-			.reduce((sum, w) => sum + (w.end - w.start), 0)
+			.filter((w) => w.cut !== null && !w.keep)
+			.reduce((sum, w) => sum + (w.end - w.start), 0),
 	);
 
 	// ── Auto-scroll ───────────────────────────────────────────────────────────
@@ -107,52 +107,63 @@
 		tick().then(() => {
 			if (!container) return;
 			// Plain word → direct data-word-id lookup
-			let elem: Element | null = container.querySelector(`[data-word-id="${id}"]`);
+			let elem: Element | null = container.querySelector(
+				`[data-word-id="${id}"]`,
+			);
 			// Cut chip → scan data-chip-ids
 			if (!elem) {
-				for (const chip of Array.from(container.querySelectorAll('[data-chip-ids]'))) {
-					const ids = (chip.getAttribute('data-chip-ids') ?? '').split(',').map(Number);
-					if (ids.includes(id)) { elem = chip; break; }
+				for (const chip of Array.from(
+					container.querySelectorAll("[data-chip-ids]"),
+				)) {
+					const ids = (chip.getAttribute("data-chip-ids") ?? "")
+						.split(",")
+						.map(Number);
+					if (ids.includes(id)) {
+						elem = chip;
+						break;
+					}
 				}
 			}
-			elem?.scrollIntoView({ behavior: isPlaying ? 'smooth' : 'auto', block: 'nearest' });
+			elem?.scrollIntoView({
+				behavior: isPlaying ? "smooth" : "auto",
+				block: "nearest",
+			});
 		});
 	});
 
 	// ── Chip helpers ──────────────────────────────────────────────────────────
 	function chipIsActive(chip: ChipToken): boolean {
-		return activeWordId !== null && chip.words.some(w => w.id === activeWordId);
+		return (
+			activeWordId !== null &&
+			chip.words.some((w) => w.id === activeWordId)
+		);
 	}
 
 	function chipIsRestored(chip: ChipToken): boolean {
-		return chip.words.every(w => w.keep);
+		return chip.words.every((w) => w.keep);
 	}
 
 	function chipText(chip: ChipToken): string {
-		if (chip.cutType === 'pause') {
+		if (chip.cutType === "pause") {
 			const durMs = Math.round(
-				chip.words.reduce((s, w) => s + (w.end - w.start), 0)
+				chip.words.reduce((s, w) => s + (w.end - w.start), 0),
 			);
 			return `[${durMs} ms pause]`;
 		}
-		return chip.words.map(w => w.text).join(' ');
+		return chip.words.map((w) => w.text).join(" ");
 	}
 
 	function chipStyle(chip: ChipToken): string {
-		const active   = chipIsActive(chip);
+		const active = chipIsActive(chip);
 		const restored = chipIsRestored(chip);
-		const isPause = chip.cutType === 'pause';
+		const isPause = chip.cutType === "pause";
 
 		if (restored && !active) {
-			return `background:${isPause ? 'rgba(239,68,68,0.05)' : 'rgba(148,163,184,0.05)'};border:1px solid rgba(148,163,184,0.12);color:#65707c;`;
+			return `background:${isPause ? "rgba(239,68,68,0.05)" : "rgba(148,163,184,0.05)"};border:1px solid rgba(148,163,184,0.12);color:#65707c;`;
 		}
 
-		const rgb   = active ? '200,241,53' : CUT_RGB[chip.cutType];
-		const color = active
-			? '#c8f135'
-			: isPause
-				? '#f29a9a'
-				: '#86919d';
+		const rgb = active ? "200,241,53" : CUT_RGB[chip.cutType];
+		const color = active ? "#c8f135" : isPause ? "#f29a9a" : "#86919d";
 		const bgAlpha = active ? 0.14 : restored ? 0.08 : isPause ? 0.12 : 0.1;
 
 		const parts = [
@@ -163,38 +174,41 @@
 
 		if (!restored && !isPause) {
 			parts.push(
-				'text-decoration-line:line-through',
-				`text-decoration-color:rgba(${rgb},0.55)`
+				"text-decoration-line:line-through",
+				`text-decoration-color:rgba(${rgb},0.55)`,
 			);
 		}
 
-		return parts.join(';') + ';';
+		return parts.join(";") + ";";
 	}
 
 	function chipTooltip(chip: ChipToken): string {
-		const verb = chipIsRestored(chip) ? 'remove' : 'restore';
+		const verb = chipIsRestored(chip) ? "remove" : "restore";
 		return `Click to ${verb} this ${CUT_LABEL[chip.cutType]}`;
 	}
 
 	function tokenKey(token: Token, index: number): string {
-		if (token.type === 'plain') return `plain-${token.word.id}`;
-		if (token.type === 'chip') return `chip-${token.words[0]?.id ?? index}`;
+		if (token.type === "plain") return `plain-${token.word.id}`;
+		if (token.type === "chip") return `chip-${token.words[0]?.id ?? index}`;
 		return `marker-${token.wordId}`;
 	}
 </script>
 
 <div class="flex flex-col h-full" style="background:#111111">
-
 	<!-- ── Header ─────────────────────────────────────────────────────────── -->
-	<div class="flex items-center justify-between px-6 py-3 border-b border-[#1e1e1e] flex-shrink-0">
+	<div
+		class="flex items-center justify-between px-6 py-3 border-b border-[#1e1e1e] flex-shrink-0"
+	>
 		<span
 			class="text-[10px] uppercase font-mono tracking-[3px]"
 			style="color:#444;font-family:'DM Mono',monospace;letter-spacing:3px;"
-		>TRANSCRIPT</span>
+			>TRANSCRIPT</span
+		>
 		<span
 			class="text-[11px] font-mono tabular-nums"
 			style="color:#666;font-family:'DM Mono',monospace;"
-		>−{(totalCutMs / 1000).toFixed(1)}s removed</span>
+			>−{(totalCutMs / 1000).toFixed(1)}s removed</span
+		>
 	</div>
 
 	<!-- ── Prose ──────────────────────────────────────────────────────────── -->
@@ -204,15 +218,17 @@
 		style="padding:20px 24px;line-height:2.2;font-size:15px;font-family:'DM Mono',monospace;color:#d4d4d4;scrollbar-width:none;"
 	>
 		{#each tokens as token, index (tokenKey(token, index))}
-			{#if token.type === 'marker'}
+			{#if token.type === "marker"}
 				<span class="play-marker">
 					<span class="play-marker__order">{token.playOrder}</span>
-					<span class="play-marker__label">{token.slotLabel ?? 'Kept slot'}</span>
+					<span class="play-marker__label"
+						>{token.slotLabel ?? "Kept slot"}</span
+					>
 					{#if token.lineLabel}
 						<span class="play-marker__meta">{token.lineLabel}</span>
 					{/if}
-				</span>{' '}
-			{:else if token.type === 'plain'}
+				</span>{" "}
+			{:else if token.type === "plain"}
 				<!-- Plain keep-word: click-to-seek, karaoke highlight when active -->
 				<span
 					data-word-id={token.word.id}
@@ -220,35 +236,34 @@
 					tabindex="0"
 					class="word-token"
 					style={activeWordId === token.word.id
-						? 'color:#f5ffd6;background:rgba(200,241,53,0.18);box-shadow:inset 0 0 0 1px rgba(200,241,53,0.22);border-radius:5px;'
-						: ''}
+						? "color:#f5ffd6;background:rgba(200,241,53,0.18);box-shadow:inset 0 0 0 1px rgba(200,241,53,0.22);border-radius:5px;"
+						: ""}
 					onclick={() => onSeek(token.word.start)}
-					onkeydown={(e) => { if (e.key === 'Enter') onSeek(token.word.start); }}
-				>{token.word.text}</span>{' '}
+					onkeydown={(e) => {
+						if (e.key === "Enter") onSeek(token.word.start);
+					}}>{token.word.text}</span
+				>{" "}
 			{:else}
 				<!-- Cut-run chip: single clickable affordance for the whole run -->
 				<span
-					data-chip-ids={token.words.map(w => w.id).join(',')}
+					data-chip-ids={token.words.map((w) => w.id).join(",")}
 					role="button"
 					tabindex="0"
 					class="chip-token"
 					style={chipStyle(token)}
 					title={chipTooltip(token)}
-					onclick={() => onToggleGroup(token.words.map(w => w.id))}
-					onkeydown={(e) => { if (e.key === 'Enter') onToggleGroup(token.words.map(w => w.id)); }}
-				>{chipText(token)}<span class="chip-icon">{chipIsRestored(token) ? '✕' : '↩'}</span></span>{' '}
+					onclick={() => onToggleGroup(token.words.map((w) => w.id))}
+					onkeydown={(e) => {
+						if (e.key === "Enter")
+							onToggleGroup(token.words.map((w) => w.id));
+					}}
+					>{chipText(token)}<span class="chip-icon"
+						>{chipIsRestored(token) ? "✕" : "↩"}</span
+					></span
+				>{" "}
 			{/if}
 		{/each}
 	</div>
-
-	<!-- ── Footer ─────────────────────────────────────────────────────────── -->
-	<div class="px-6 py-3 border-t border-[#1e1e1e] flex-shrink-0">
-		<span
-			class="text-[11px] font-mono"
-			style="color:#333;font-family:'DM Mono',monospace;"
-		>Click any highlighted phrase to toggle · Click any word to seek</span>
-	</div>
-
 </div>
 
 <style>
@@ -260,7 +275,10 @@
 		background: rgba(148, 163, 184, 0.07);
 		box-shadow: inset 0 0 0 1px rgba(148, 163, 184, 0.08);
 		color: #d7dde5;
-		transition: color 150ms, background-color 150ms, box-shadow 150ms;
+		transition:
+			color 150ms,
+			background-color 150ms,
+			box-shadow 150ms;
 	}
 
 	.word-token:hover {
@@ -317,11 +335,13 @@
 		margin: 0 2px;
 		font-size: 13px;
 		cursor: pointer;
-		transition: transform 150ms, opacity 150ms;
+		transition:
+			transform 150ms,
+			opacity 150ms;
 		user-select: none;
 		vertical-align: middle;
 		line-height: 1.6;
-		font-family: 'DM Mono', monospace;
+		font-family: "DM Mono", monospace;
 	}
 
 	.chip-token:hover {
