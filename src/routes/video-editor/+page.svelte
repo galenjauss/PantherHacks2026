@@ -399,6 +399,7 @@
 								editor,
 							)}
 							videoUrl={editor.videoUrl}
+							transcriptWords={editor.transcriptWords}
 							onSlotHover={(beatId) => {
 								clipTreeHoveredBeatId = beatId;
 							}}

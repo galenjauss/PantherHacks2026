@@ -1,14 +1,9 @@
 <script lang="ts">
-	import {
-		HoverCard,
-		HoverCardContent,
-		HoverCardTrigger
-	} from "$lib/components/ui/hover-card";
 	import { cn } from "$lib/utils.js";
+	import type { AutocutTranscriptWord } from "$lib/types/autocut";
 	import type { EditorClipStripBeatBlock } from "$lib/stores/video-editor.svelte";
 	import * as Dialog from "$lib/components/ui/dialog";
 	import { Button } from "$lib/components/ui/button";
-	import { Slider } from "$lib/components/ui/slider";
 	import PauseIcon from "@lucide/svelte/icons/pause";
 	import PlayIcon from "@lucide/svelte/icons/play";
 	import RotateCcwIcon from "@lucide/svelte/icons/rotate-ccw";
@@ -19,13 +14,33 @@
 		currentTimeMs: number;
 		formatDuration: (ms: number) => string;
 		videoUrl?: string | null;
+		transcriptWords?: AutocutTranscriptWord[];
 		onSlotHover?: (beatId: string | null) => void;
-		onSelectVariant: (slotId: string, variantId: string, startMs: number) => void;
-		onTrimVariant?: (slotId: string, variantId: string, field: "startOffsetMs" | "endOffsetMs", valueMs: number) => void;
+		onSelectVariant: (
+			slotId: string,
+			variantId: string,
+			startMs: number,
+		) => void;
+		onTrimVariant?: (
+			slotId: string,
+			variantId: string,
+			field: "startOffsetMs" | "endOffsetMs",
+			valueMs: number,
+		) => void;
 		onClearTrim?: (slotId: string, variantId: string) => void;
 	}
 
-	let { blocks, currentTimeMs, formatDuration, videoUrl = null, onSlotHover, onSelectVariant, onTrimVariant, onClearTrim }: Props = $props();
+	let {
+		blocks,
+		currentTimeMs,
+		formatDuration,
+		videoUrl = null,
+		transcriptWords = [],
+		onSlotHover,
+		onSelectVariant,
+		onTrimVariant,
+		onClearTrim,
+	}: Props = $props();
 
 	const TRIM_STEP_MS = 100;
 	const PAN_GUTTER_PX = 240;
@@ -48,23 +63,76 @@
 
 	let activeTrimDialogBlock = $derived(
 		activeTrimDialogSlotId
-			? blocks.find((block) => block.beatId === activeTrimDialogSlotId) ?? null
-			: null
+			? (blocks.find(
+					(block) => block.beatId === activeTrimDialogSlotId,
+				) ?? null)
+			: null,
 	);
 	let activeTrimDialogVariant = $derived(
 		activeTrimDialogBlock && activeTrimDialogVariantId
-			? activeTrimDialogBlock.variants.find((variant) => variant.variantId === activeTrimDialogVariantId) ?? null
-			: null
+			? (activeTrimDialogBlock.variants.find(
+					(variant) =>
+						variant.variantId === activeTrimDialogVariantId,
+				) ?? null)
+			: null,
 	);
-	let activeTrim = $derived(activeTrimDialogVariant?.trimOffset ?? { startOffsetMs: 0, endOffsetMs: 0 });
-	let activeTrimHasTrim = $derived(activeTrim.startOffsetMs !== 0 || activeTrim.endOffsetMs !== 0);
-	let activeTrimStartMs = $derived(activeTrimDialogVariant?.trimmedStart ?? 0);
+	let activeTrim = $derived(
+		activeTrimDialogVariant?.trimOffset ?? {
+			startOffsetMs: 0,
+			endOffsetMs: 0,
+		},
+	);
+	let activeTrimHasTrim = $derived(
+		activeTrim.startOffsetMs !== 0 || activeTrim.endOffsetMs !== 0,
+	);
+	let activeTrimStartMs = $derived(
+		activeTrimDialogVariant?.trimmedStart ?? 0,
+	);
 	let activeTrimEndMs = $derived(activeTrimDialogVariant?.trimmedEnd ?? 0);
-	let activeTrimOriginalStartMs = $derived(activeTrimDialogVariant?.start ?? 0);
-	let activeTrimOriginalDurationMs = $derived(activeTrimDialogVariant?.durationMs ?? 0);
-	let trimSliderRangeMs = $derived(Math.max(Math.ceil(activeTrimOriginalDurationMs / 100) * 100, 3000));
+	let activeTrimOriginalStartMs = $derived(
+		activeTrimDialogVariant?.start ?? 0,
+	);
+	let activeTrimOriginalDurationMs = $derived(
+		activeTrimDialogVariant?.durationMs ?? 0,
+	);
+	let activeTrimOriginalEndMs = $derived(
+		activeTrimOriginalStartMs + activeTrimOriginalDurationMs,
+	);
+	let trimTimelineStartMs = $derived(
+		Math.max(
+			0,
+			activeTrimOriginalStartMs -
+				Math.max(1500, Math.abs(activeTrim.startOffsetMs) + 800),
+		),
+	);
+	let trimTimelineEndMs = $derived(
+		Math.max(
+			activeTrimOriginalEndMs +
+				Math.max(1500, Math.abs(activeTrim.endOffsetMs) + 800),
+			activeTrimEndMs + 500,
+		),
+	);
+	let trimTimelineDurationMs = $derived(
+		Math.max(trimTimelineEndMs - trimTimelineStartMs, TRIM_STEP_MS),
+	);
+	let trimStartPct = $derived(
+		((activeTrimStartMs - trimTimelineStartMs) / trimTimelineDurationMs) *
+			100,
+	);
+	let trimEndPct = $derived(
+		((activeTrimEndMs - trimTimelineStartMs) / trimTimelineDurationMs) *
+			100,
+	);
 
-	function openTrimDialog(slotId: string, variantId: string, takeLabel: string, humanLabel: string) {
+	let trimHandleDrag = $state<"start" | "end" | null>(null);
+	let trimBarEl = $state<HTMLDivElement | null>(null);
+
+	function openTrimDialog(
+		slotId: string,
+		variantId: string,
+		takeLabel: string,
+		humanLabel: string,
+	) {
 		trimDialogTarget = { slotId, variantId, takeLabel, humanLabel };
 		trimDialogOpen = true;
 	}
@@ -73,13 +141,21 @@
 		return `${ms >= 0 ? "+" : ""}${(ms / 1000).toFixed(1)}s`;
 	}
 
+	function formatPreviewTimestamp(ms: number): string {
+		const safeMs = Number.isFinite(ms) ? Math.max(ms, 0) : 0;
+		const totalSeconds = Math.floor(safeMs / 1000);
+		const minutes = Math.floor(totalSeconds / 60);
+		const seconds = totalSeconds % 60;
+		const tenths = Math.floor((safeMs % 1000) / 100);
+		return `${minutes}:${String(seconds).padStart(2, "0")}.${tenths}`;
+	}
+
 	function clampMs(value: number, min: number, max: number): number {
 		return Math.min(max, Math.max(min, value));
 	}
 
-	function slotScriptText(block: EditorClipStripBeatBlock): string {
-		const selected = block.variants.find((v) => v.isSelected);
-		return (selected?.previewText ?? block.variants[0]?.previewText ?? "").trim();
+	function snapTrimMs(value: number): number {
+		return Math.round(value / TRIM_STEP_MS) * TRIM_STEP_MS;
 	}
 
 	function seekTrimPreview(nextMs: number, paused = true) {
@@ -96,14 +172,123 @@
 
 		if (trimPreviewPaused) {
 			const resumeMs = trimPreviewCurrentTime * 1000;
-			const nextMs = resumeMs >= activeTrimStartMs && resumeMs <= activeTrimEndMs
-				? resumeMs
-				: activeTrimStartMs;
+			const nextMs =
+				resumeMs >= activeTrimStartMs && resumeMs <= activeTrimEndMs
+					? resumeMs
+					: activeTrimStartMs;
 			seekTrimPreview(nextMs, false);
 			return;
 		}
 
 		trimPreviewPaused = true;
+	}
+
+	function timeToPct(ms: number): number {
+		return ((ms - trimTimelineStartMs) / trimTimelineDurationMs) * 100;
+	}
+
+	let trimTickMarks = $derived.by(() =>
+		Array.from({ length: 7 }, (_, index) => {
+			const ratio = index / 6;
+			const timeMs = trimTimelineStartMs + trimTimelineDurationMs * ratio;
+			return {
+				id: `tick-${index}`,
+				leftPct: ratio * 100,
+				label: formatPreviewTimestamp(timeMs),
+			};
+		}),
+	);
+
+	let activeTrimWordMarkers = $derived.by(() => {
+		if (!activeTrimDialogVariant) return [];
+
+		const markers: Array<{
+			id: string;
+			text: string;
+			leftPct: number;
+			widthPct: number;
+			startMs: number;
+			endMs: number;
+		}> = [];
+
+		for (const [startIndex, endIndex] of activeTrimDialogVariant.wordRanges) {
+			for (let index = startIndex; index <= endIndex; index += 1) {
+				const word = transcriptWords[index];
+				if (!word) continue;
+				const startMs = clampMs(
+					word.start,
+					trimTimelineStartMs,
+					trimTimelineEndMs,
+				);
+				const endMs = clampMs(word.end, startMs, trimTimelineEndMs);
+				markers.push({
+					id: `word-${index}`,
+					text: word.text,
+					leftPct: timeToPct(startMs),
+					widthPct: Math.max(
+						(Math.max(endMs - startMs, 40) / trimTimelineDurationMs) *
+							100,
+						0.5,
+					),
+					startMs,
+					endMs,
+				});
+			}
+		}
+
+		return markers;
+	});
+
+	function updateTrimFromClientX(clientX: number) {
+		if (!trimHandleDrag || !trimBarEl || !trimDialogTarget || !onTrimVariant) {
+			return;
+		}
+
+		const rect = trimBarEl.getBoundingClientRect();
+		if (rect.width <= 0) return;
+
+		const ratio = clampMs((clientX - rect.left) / rect.width, 0, 1);
+		const absoluteMs = snapTrimMs(
+			trimTimelineStartMs + trimTimelineDurationMs * ratio,
+		);
+
+		if (trimHandleDrag === "start") {
+			const clampedStart = Math.min(
+				absoluteMs,
+				activeTrimEndMs - TRIM_STEP_MS,
+			);
+			onTrimVariant(
+				trimDialogTarget.slotId,
+				trimDialogTarget.variantId,
+				"startOffsetMs",
+				clampedStart - activeTrimOriginalStartMs,
+			);
+			return;
+		}
+
+		const clampedEnd = Math.max(absoluteMs, activeTrimStartMs + TRIM_STEP_MS);
+		onTrimVariant(
+			trimDialogTarget.slotId,
+			trimDialogTarget.variantId,
+			"endOffsetMs",
+			clampedEnd - activeTrimOriginalEndMs,
+		);
+	}
+
+	function beginTrimHandleDrag(handle: "start" | "end", event: PointerEvent) {
+		event.preventDefault();
+		event.stopPropagation();
+		trimHandleDrag = handle;
+		updateTrimFromClientX(event.clientX);
+	}
+
+	function onTrimBarPointerMove(event: PointerEvent) {
+		if (!trimHandleDrag) return;
+		updateTrimFromClientX(event.clientX);
+	}
+
+	function endTrimHandleDrag() {
+		trimHandleDrag = null;
 	}
 
 	let hoveredBeatId = $state<string | null>(null);
@@ -121,7 +306,8 @@
 
 		const nextKey = `${trimDialogTarget.slotId}:${trimDialogTarget.variantId}`;
 		if (trimPreviewKey !== nextKey) {
-			trimPreviewCurrentTime = activeTrimDialogVariant.trimmedStart / 1000;
+			trimPreviewCurrentTime =
+				activeTrimDialogVariant.trimmedStart / 1000;
 			trimPreviewPaused = true;
 			trimPreviewKey = nextKey;
 		}
@@ -133,12 +319,18 @@
 		const startSec = activeTrimDialogVariant.trimmedStart / 1000;
 		const endSec = activeTrimDialogVariant.trimmedEnd / 1000;
 
-		if (trimPreviewCurrentTime < startSec || trimPreviewCurrentTime > endSec) {
+		if (
+			trimPreviewCurrentTime < startSec ||
+			trimPreviewCurrentTime > endSec
+		) {
 			trimPreviewCurrentTime = startSec;
 			return;
 		}
 
-		if (!trimPreviewPaused && trimPreviewCurrentTime >= Math.max(endSec - 0.04, startSec)) {
+		if (
+			!trimPreviewPaused &&
+			trimPreviewCurrentTime >= Math.max(endSec - 0.04, startSec)
+		) {
 			trimPreviewCurrentTime = startSec;
 		}
 	});
@@ -161,11 +353,13 @@
 	// Svelte action to register variant button elements into the map
 	function trackEl(node: HTMLElement, id: string) {
 		variantEls.set(id, node);
-		tick().then(() => { resizeGen++; });
+		tick().then(() => {
+			resizeGen++;
+		});
 		return {
 			destroy() {
 				variantEls.delete(id);
-			}
+			},
 		};
 	}
 
@@ -221,7 +415,7 @@
 						key: `${lv.id}--${rv.id}`,
 						d,
 						arrowPoints,
-						active: lv.isSelected && rv.isSelected
+						active: lv.isSelected && rv.isSelected,
 					});
 				}
 			}
@@ -278,7 +472,10 @@
 
 		requestAnimationFrame(() => {
 			if (!containerEl || hasInitializedPanOffset) return;
-			containerEl.scrollLeft = Math.min(PAN_GUTTER_PX, containerEl.scrollWidth - containerEl.clientWidth);
+			containerEl.scrollLeft = Math.min(
+				PAN_GUTTER_PX,
+				containerEl.scrollWidth - containerEl.clientWidth,
+			);
 			hasInitializedPanOffset = true;
 		});
 	});
@@ -305,7 +502,8 @@
 	}
 
 	function onGrabPointerMove(e: PointerEvent) {
-		if (!containerEl || !isDragging || e.pointerId !== dragPointerId) return;
+		if (!containerEl || !isDragging || e.pointerId !== dragPointerId)
+			return;
 
 		e.preventDefault();
 		const dx = e.clientX - dragStartX;
@@ -315,7 +513,11 @@
 	}
 
 	function stopDragging() {
-		if (grabSurfaceEl && dragPointerId !== null && grabSurfaceEl.hasPointerCapture(dragPointerId)) {
+		if (
+			grabSurfaceEl &&
+			dragPointerId !== null &&
+			grabSurfaceEl.hasPointerCapture(dragPointerId)
+		) {
 			grabSurfaceEl.releasePointerCapture(dragPointerId);
 		}
 		isDragging = false;
@@ -333,6 +535,8 @@
 		dragPointerId = null;
 	}
 </script>
+
+<svelte:window onpointermove={onTrimBarPointerMove} onpointerup={endTrimHandleDrag} />
 
 <div
 	bind:this={containerEl}
@@ -374,46 +578,18 @@
 
 		<!-- Variant columns -->
 		{#each blocks as block (block.id)}
-			{@const isPlaying = currentTimeMs >= block.startMs && currentTimeMs < block.endMs}
-			{@const script = slotScriptText(block)}
+			{@const isPlaying =
+				currentTimeMs >= block.startMs && currentTimeMs < block.endMs}
 			<!-- svelte-ignore a11y_no_static_element_interactions -->
 			<div
 				class={cn(
 					"pointer-events-auto relative flex min-w-[140px] shrink-0 flex-col gap-2 rounded-sm border border-snip-border/85 px-2 py-2 shadow-[0_12px_28px_rgba(0,0,0,0.22)] transition-colors duration-300",
-					isPlaying ? "border-primary/50 ring-1 ring-primary/30" : ""
+					isPlaying ? "border-primary/50 ring-1 ring-primary/30" : "",
 				)}
 				style="background-color: color-mix(in srgb, var(--snip-surface-elevated) 92%, white 4%);"
 				onmouseenter={() => (hoveredBeatId = block.beatId)}
 				onmouseleave={() => (hoveredBeatId = null)}
 			>
-				<HoverCard openDelay={200} closeDelay={100} disabled={!script}>
-					<HoverCardTrigger>
-						{#snippet child({ props })}
-							<div {...props} class={cn("flex flex-col gap-0.5 px-0.5", props.class as string | undefined)}>
-								<div class="flex items-center gap-1.5">
-									<div
-										class="size-2 shrink-0 rounded-full"
-										style="background:{block.color};"
-									></div>
-									<span class="truncate text-[10px] font-medium text-snip-text-secondary">
-										{block.humanLabel}
-									</span>
-								</div>
-								<span class="font-mono text-[8px] tabular-nums text-snip-text-secondary">
-									{formatDuration(block.startMs)} – {formatDuration(block.endMs)}
-								</span>
-							</div>
-						{/snippet}
-					</HoverCardTrigger>
-					<HoverCardContent
-						side="top"
-						align="center"
-						sideOffset={8}
-						class="max-w-xs border-snip-border bg-snip-surface-elevated p-3 text-xs leading-relaxed text-snip-text-primary shadow-xl ring-0"
-					>
-						<p class="text-pretty">{script}</p>
-					</HoverCardContent>
-				</HoverCard>
 				{#each block.variants as variant, takeIdx (variant.id)}
 					<button
 						type="button"
@@ -421,7 +597,12 @@
 						class="relative flex w-full items-center justify-between gap-2 overflow-hidden rounded-sm border px-3 py-2 text-left transition-colors hover:border-primary/60 {variant.isSelected
 							? 'border-primary bg-primary/10'
 							: 'border-snip-border bg-snip-surface'}"
-						onclick={() => onSelectVariant(block.beatId, variant.variantId, variant.start)}
+						onclick={() =>
+							onSelectVariant(
+								block.beatId,
+								variant.variantId,
+								variant.start,
+							)}
 					>
 						<span
 							class="truncate text-xs {variant.isSelected
@@ -430,30 +611,52 @@
 						>
 							Take {takeIdx + 1}
 						</span>
-						<span class="shrink-0 font-mono text-[10px] text-snip-text-secondary">
+						<span
+							class="shrink-0 font-mono text-[10px] text-snip-text-secondary"
+						>
 							{formatDuration(variant.trimmedDurationMs)}
 						</span>
 					</button>
 					{#if variant.isSelected && onTrimVariant}
-						{@const trim = variant.trimOffset ?? { startOffsetMs: 0, endOffsetMs: 0 }}
-						{@const hasTrim = trim.startOffsetMs !== 0 || trim.endOffsetMs !== 0}
+						{@const trim = variant.trimOffset ?? {
+							startOffsetMs: 0,
+							endOffsetMs: 0,
+						}}
+						{@const hasTrim =
+							trim.startOffsetMs !== 0 || trim.endOffsetMs !== 0}
 						<button
 							type="button"
 							class="flex w-full items-center justify-between gap-1.5 rounded-sm border border-snip-border/40 bg-snip-bg/40 px-2 py-1 text-left transition-colors hover:border-primary/40 hover:bg-snip-bg/55"
 							aria-label={`Edit trim for ${block.humanLabel}, take ${takeIdx + 1}`}
-							onclick={(e) => { e.stopPropagation(); openTrimDialog(block.beatId, variant.variantId, `Take ${takeIdx + 1}`, block.humanLabel); }}
+							onclick={(e) => {
+								e.stopPropagation();
+								openTrimDialog(
+									block.beatId,
+									variant.variantId,
+									`Take ${takeIdx + 1}`,
+									block.humanLabel,
+								);
+							}}
 						>
-							<div class="flex items-center gap-2 font-mono text-[9px] tabular-nums text-snip-text-secondary">
+							<div
+								class="flex items-center gap-2 font-mono text-[9px] tabular-nums text-snip-text-secondary"
+							>
 								<span class={hasTrim ? "text-primary" : ""}>
 									{formatOffset(trim.startOffsetMs)}
 								</span>
-								<span class="text-snip-text-secondary/50">/</span>
+								<span class="text-snip-text-secondary/50"
+									>/</span
+								>
 								<span class={hasTrim ? "text-primary" : ""}>
 									{formatOffset(trim.endOffsetMs)}
 								</span>
 							</div>
-							<span class="flex size-5 items-center justify-center rounded text-snip-text-muted">
-								<PencilIcon class="size-2.5 text-snip-text-muted" />
+							<span
+								class="flex size-5 items-center justify-center rounded text-snip-text-muted"
+							>
+								<PencilIcon
+									class="size-2.5 text-snip-text-muted"
+								/>
 							</span>
 						</button>
 					{/if}
@@ -468,7 +671,9 @@
 		></div>
 
 		<!-- SVG line overlay — rendered AFTER blocks so it naturally paints on top -->
-		<svg class="pointer-events-none absolute inset-0 z-40 h-full w-full overflow-visible">
+		<svg
+			class="pointer-events-none absolute inset-0 z-40 h-full w-full overflow-visible"
+		>
 			<defs>
 				<filter id="active-glow">
 					<feGaussianBlur stdDeviation="2" result="blur" />
@@ -483,7 +688,9 @@
 					<path
 						d={curve.d}
 						fill="none"
-						stroke={curve.active ? "var(--primary)" : "var(--snip-border)"}
+						stroke={curve.active
+							? "var(--primary)"
+							: "var(--snip-border)"}
 						stroke-width={curve.active ? 2 : 1.5}
 						stroke-linecap="round"
 						stroke-linejoin="round"
@@ -493,7 +700,9 @@
 					/>
 					<polygon
 						points={curve.arrowPoints}
-						fill={curve.active ? "var(--primary)" : "var(--snip-border)"}
+						fill={curve.active
+							? "var(--primary)"
+							: "var(--snip-border)"}
 						fill-opacity={curve.active ? 0.95 : 0.55}
 						style="transition: fill-opacity 300ms ease, fill 300ms ease;"
 					/>
@@ -506,19 +715,27 @@
 {#if trimDialogTarget && onTrimVariant}
 	{@const target = trimDialogTarget}
 	<Dialog.Root bind:open={trimDialogOpen}>
-		<Dialog.Content class="gap-0 overflow-hidden border-snip-border bg-snip-surface p-0 sm:max-w-lg">
-			<div class="flex flex-col gap-1 border-b border-snip-border/50 px-5 pt-5 pb-4">
+		<Dialog.Content
+			class="gap-0 overflow-hidden border-snip-border bg-snip-surface p-0 sm:max-w-lg"
+		>
+			<div
+				class="flex flex-col gap-1 border-b border-snip-border/50 px-5 pt-5 pb-4"
+			>
 				<Dialog.Title class="font-display text-sm font-bold text-white">
 					Trim {target.humanLabel} &mdash; {target.takeLabel}
 				</Dialog.Title>
-				<Dialog.Description class="text-[12px] text-snip-text-secondary">
-					Preview the clip, then adjust the start and end sliders.
+				<Dialog.Description
+					class="text-[12px] text-snip-text-secondary"
+				>
+					Preview the clip, then drag either edge of the trim bar.
 				</Dialog.Description>
 			</div>
 
 			<div class="space-y-4 px-5 py-4">
 				{#if videoUrl}
-					<div class="overflow-hidden rounded-[18px] border border-snip-border/60 bg-black shadow-[0_20px_50px_rgba(0,0,0,0.35)]">
+					<div
+						class="overflow-hidden rounded-[18px] border border-snip-border/60 bg-black shadow-[0_20px_50px_rgba(0,0,0,0.35)]"
+					>
 						<div class="relative">
 							<video
 								src={videoUrl}
@@ -528,7 +745,8 @@
 								playsinline
 								preload="auto"
 								onloadedmetadata={() => {
-									trimPreviewCurrentTime = activeTrimStartMs / 1000;
+									trimPreviewCurrentTime =
+										activeTrimStartMs / 1000;
 								}}
 							>
 								<track kind="captions" />
@@ -536,10 +754,14 @@
 							<button
 								type="button"
 								class="absolute inset-0 flex items-center justify-center bg-black/10 transition hover:bg-black/20"
-								aria-label={trimPreviewPaused ? "Play trimmed clip" : "Pause trimmed clip"}
+								aria-label={trimPreviewPaused
+									? "Play trimmed clip"
+									: "Pause trimmed clip"}
 								onclick={toggleTrimPreviewPlayback}
 							>
-								<span class="flex size-14 items-center justify-center rounded-full bg-black/55 text-white shadow-lg backdrop-blur-sm">
+								<span
+									class="flex size-14 items-center justify-center rounded-full bg-black/55 text-white shadow-lg backdrop-blur-sm"
+								>
 									{#if trimPreviewPaused}
 										<PlayIcon class="ml-0.5 size-6" />
 									{:else}
@@ -550,68 +772,126 @@
 						</div>
 					</div>
 				{:else}
-					<div class="flex aspect-video items-center justify-center rounded-[18px] border border-dashed border-snip-border/60 bg-snip-surface/45 px-6 text-center text-[12px] leading-5 text-snip-text-muted">
+					<div
+						class="flex aspect-video items-center justify-center rounded-[18px] border border-dashed border-snip-border/60 bg-snip-surface/45 px-6 text-center text-[12px] leading-5 text-snip-text-muted"
+					>
 						Upload a source clip to preview trim changes here.
 					</div>
 				{/if}
 
-				<div class="space-y-3">
-					<div class="space-y-2">
-						<div class="flex items-center justify-between gap-3">
-							<span class="text-sm font-medium text-white">Start</span>
-							<span class={cn(
-								"font-mono text-xs tabular-nums",
-								activeTrim.startOffsetMs !== 0 ? "text-primary" : "text-snip-text-muted"
-							)}>
-								{formatOffset(activeTrim.startOffsetMs)}
-							</span>
+				<div class="space-y-3 rounded-xl border border-snip-border/50 bg-snip-bg/45 p-4">
+					<div class="flex items-center justify-between gap-3">
+						<div>
+							<p class="text-sm font-medium text-white">Trim range</p>
+							<p class="text-[11px] text-snip-text-muted">
+								Word markers show where each spoken word lands in this take.
+							</p>
 						</div>
-						<div class="trim-slider relative px-1">
-							<div class="pointer-events-none absolute top-1/2 left-1/2 h-5 w-px -translate-x-1/2 -translate-y-1/2 bg-white/20"></div>
-							<Slider
-								type="single"
-								value={activeTrim.startOffsetMs}
-								min={-activeTrimOriginalStartMs}
-								max={trimSliderRangeMs}
-								step={TRIM_STEP_MS}
-								aria-label="Trim start offset"
-								onValueChange={(value) => onTrimVariant(target.slotId, target.variantId, "startOffsetMs", value)}
-							/>
+						<div class="flex items-center gap-2 font-mono text-[11px] tabular-nums">
+							<span class={cn(
+								"rounded-full border px-2 py-1",
+								activeTrim.startOffsetMs !== 0
+									? "border-primary/40 bg-primary/10 text-primary"
+									: "border-snip-border bg-snip-surface text-snip-text-muted"
+							)}>
+								In {formatOffset(activeTrim.startOffsetMs)}
+							</span>
+							<span class={cn(
+								"rounded-full border px-2 py-1",
+								activeTrim.endOffsetMs !== 0
+									? "border-primary/40 bg-primary/10 text-primary"
+									: "border-snip-border bg-snip-surface text-snip-text-muted"
+							)}>
+								Out {formatOffset(activeTrim.endOffsetMs)}
+							</span>
 						</div>
 					</div>
 
+					<div class="relative h-10 overflow-hidden rounded-md border border-snip-border/40 bg-snip-surface/70 px-2">
+						{#each activeTrimWordMarkers as marker, index (marker.id)}
+							<div
+								class="absolute bottom-1 flex -translate-x-1/2 flex-col items-center"
+								style={`left:${marker.leftPct}%;`}
+								title={`${marker.text} (${formatPreviewTimestamp(marker.startMs)})`}
+							>
+								<div class="h-3 w-px bg-primary/45"></div>
+								<span class={`max-w-[72px] truncate font-mono text-[9px] leading-none ${index % 2 === 0 ? "text-snip-text-muted" : "text-snip-text-secondary"}`}>
+									{marker.text}
+								</span>
+							</div>
+						{/each}
+					</div>
+
 					<div class="space-y-2">
-						<div class="flex items-center justify-between gap-3">
-							<span class="text-sm font-medium text-white">End</span>
-							<span class={cn(
-								"font-mono text-xs tabular-nums",
-								activeTrim.endOffsetMs !== 0 ? "text-primary" : "text-snip-text-muted"
-							)}>
-								{formatOffset(activeTrim.endOffsetMs)}
-							</span>
+						<div
+							bind:this={trimBarEl}
+							class="relative h-14 touch-none"
+						>
+							<div class="absolute top-6 right-0 left-0 h-1 rounded-full bg-snip-border/70"></div>
+							<div
+								class="absolute top-6 h-1 rounded-full bg-primary shadow-[0_0_16px_var(--primary)]"
+								style={`left:${trimStartPct}%; width:${Math.max(trimEndPct - trimStartPct, 0)}%;`}
+							></div>
+							<div
+								class="absolute top-4 h-5 w-3 -translate-x-1/2 cursor-ew-resize rounded-full border border-white/20 bg-primary shadow-[0_0_0_2px_#111111]"
+								style={`left:${trimStartPct}%;`}
+								role="slider"
+								aria-label="Trim start"
+								aria-valuemin={trimTimelineStartMs}
+								aria-valuemax={activeTrimEndMs}
+								aria-valuenow={activeTrimStartMs}
+								tabindex="0"
+								onpointerdown={(event) => beginTrimHandleDrag("start", event)}
+							></div>
+							<div
+								class="absolute top-4 h-5 w-3 -translate-x-1/2 cursor-ew-resize rounded-full border border-white/20 bg-primary shadow-[0_0_0_2px_#111111]"
+								style={`left:${trimEndPct}%;`}
+								role="slider"
+								aria-label="Trim end"
+								aria-valuemin={activeTrimStartMs}
+								aria-valuemax={trimTimelineEndMs}
+								aria-valuenow={activeTrimEndMs}
+								tabindex="0"
+								onpointerdown={(event) => beginTrimHandleDrag("end", event)}
+							></div>
+							<div
+								class="pointer-events-none absolute top-1 h-10 w-px -translate-x-1/2 bg-white/40"
+								style={`left:${timeToPct(trimPreviewCurrentTime * 1000)}%;`}
+							></div>
 						</div>
-						<div class="trim-slider relative px-1">
-							<div class="pointer-events-none absolute top-1/2 left-1/2 h-5 w-px -translate-x-1/2 -translate-y-1/2 bg-white/20"></div>
-							<Slider
-								type="single"
-								value={activeTrim.endOffsetMs}
-								min={-trimSliderRangeMs}
-								max={trimSliderRangeMs}
-								step={TRIM_STEP_MS}
-								aria-label="Trim end offset"
-								onValueChange={(value) => onTrimVariant(target.slotId, target.variantId, "endOffsetMs", value)}
-							/>
+
+						<div class="relative h-5">
+							{#each trimTickMarks as tick (tick.id)}
+								<div
+									class="absolute flex -translate-x-1/2 flex-col items-center gap-1"
+									style={`left:${tick.leftPct}%;`}
+								>
+									<div class="h-2 w-px bg-snip-border"></div>
+									<span class="font-mono text-[9px] text-snip-text-muted">
+										{tick.label}
+									</span>
+								</div>
+							{/each}
 						</div>
+					</div>
+
+					<div class="flex items-center justify-between font-mono text-[11px] tabular-nums text-snip-text-secondary">
+						<span>In {formatPreviewTimestamp(activeTrimStartMs)}</span>
+						<span>{formatDuration(Math.max(activeTrimEndMs - activeTrimStartMs, 0))}</span>
+						<span>Out {formatPreviewTimestamp(activeTrimEndMs)}</span>
 					</div>
 				</div>
 			</div>
 
-			<div class="flex items-center justify-between border-t border-snip-border/50 px-5 py-3">
+			<div
+				class="flex items-center justify-between border-t border-snip-border/50 px-5 py-3"
+			>
 				<button
 					type="button"
 					disabled={!activeTrimHasTrim}
 					class="flex items-center gap-1.5 text-[11px] text-snip-text-muted transition-opacity hover:text-white disabled:pointer-events-none disabled:opacity-30"
-					onclick={() => onClearTrim?.(target.slotId, target.variantId)}
+					onclick={() =>
+						onClearTrim?.(target.slotId, target.variantId)}
 				>
 					<RotateCcwIcon class="size-3" />
 					Reset
@@ -627,29 +907,3 @@
 		</Dialog.Content>
 	</Dialog.Root>
 {/if}
-
-<style>
-	.trim-slider :global([data-slot="slider-track"]) {
-		background-color: #222222;
-		height: 4px;
-	}
-
-	.trim-slider :global([data-slot="slider-range"]) {
-		background-color: transparent;
-	}
-
-	.trim-slider :global([data-slot="slider-thumb"]) {
-		width: 14px;
-		height: 14px;
-		border-color: #7c3aed;
-		background-color: #7c3aed;
-		box-shadow: 0 0 0 2px #111111;
-	}
-
-	.trim-slider :global([data-slot="slider-thumb"]:hover),
-	.trim-slider :global([data-slot="slider-thumb"]:focus-visible) {
-		box-shadow:
-			0 0 0 2px #111111,
-			0 0 0 4px #7c3aed55;
-	}
-</style>

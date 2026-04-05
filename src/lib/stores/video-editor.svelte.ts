@@ -90,6 +90,7 @@ export interface EditorClipStripBeatBlock {
 			kind: EditorBeatVariant["status"];
 			isSelected: boolean;
 			fillPct: number;
+			wordRanges: Array<[number, number]>;
 			trimOffset: VariantTrimOffset | null;
 			trimmedStart: number;
 			trimmedEnd: number;
@@ -1461,6 +1462,7 @@ class VideoEditorState {
 						durationMs: variant.durationMs,
 						start: variant.start,
 						previewText: variant.previewText,
+						wordRanges: variant.wordRanges,
 						isSelected: selectedVariant?.variantId === variant.variantId,
 						fillPct: clamp(Math.round((trimmed.durationMs / maxDurationMs) * 100), 18, 100),
 						trimOffset,
