@@ -12,7 +12,7 @@
 	<span class="text-[10px] font-semibold uppercase tracking-[0.25em] text-snip-text-muted">Snip AI</span>
 
 	<div class="flex items-center gap-2">
-		<span class="pulse-dot size-[7px] flex-shrink-0 rounded-full bg-primary"></span>
+		<span class="pulse-dot size-[7px] shrink-0 rounded-full bg-primary"></span>
 		<span class="flex-1 text-[13px] font-medium leading-none text-white">{editor.statusLabel}</span>
 		<span class="font-mono text-[12px] tabular-nums text-snip-text-secondary">
 			{Math.min(Math.max(editor.workflowStep, 1), total)} / {total}
@@ -30,7 +30,7 @@
 		{#each steps as step, index (`workflow-step-${index}-${step.label}`)}
 			<li class="flex h-7 items-center gap-2.5">
 				<span
-					class={`w-3 flex-shrink-0 text-center text-[12px] font-bold leading-none ${step.state === "active" ? "active-glyph" : ""}`}
+					class={`w-3 shrink-0 text-center text-[12px] font-bold leading-none ${step.state === "active" ? "active-glyph" : ""}`}
 					style={`color:${glyphColor[step.state]}`}
 				>
 					{step.glyph}

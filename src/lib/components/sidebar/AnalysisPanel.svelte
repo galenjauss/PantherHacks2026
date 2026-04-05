@@ -12,14 +12,14 @@
 		<div class="flex flex-col gap-2.5">
 			{#each editor.analysisStats as stat}
 				<div class="flex items-center gap-2.5">
-					<span class="size-[6px] flex-shrink-0 rounded-full" style={`background:${stat.color}`}></span>
-					<span class="w-[90px] flex-shrink-0 text-[12px] leading-none text-snip-text-secondary">
+					<span class="size-[6px] shrink-0 rounded-full" style={`background:${stat.color}`}></span>
+					<span class="w-[90px] shrink-0 text-[12px] leading-none text-snip-text-secondary">
 						{stat.label}
 					</span>
 					<div class="h-1 flex-1 overflow-hidden rounded-full bg-[#222222]">
 						<div class="h-full rounded-full" style={`width:${stat.fill}%;background:${stat.color};`}></div>
 					</div>
-					<span class="w-8 flex-shrink-0 text-right font-mono text-[13px] font-medium tabular-nums text-white">
+					<span class="w-8 shrink-0 text-right font-mono text-[13px] font-medium tabular-nums text-white">
 						{stat.count}
 					</span>
 				</div>

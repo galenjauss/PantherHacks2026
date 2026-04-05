@@ -36,7 +36,7 @@
 			</div>
 
 			<div
-				class={`flex flex-shrink-0 items-center gap-1.5 rounded-full px-2.5 py-[3px] text-[11px] font-medium ${
+				class={`flex shrink-0 items-center gap-1.5 rounded-full px-2.5 py-[3px] text-[11px] font-medium ${
 					editor.isReady
 						? "border border-emerald-500/20 bg-emerald-500/15 text-emerald-400"
 						: editor.hasErrors
