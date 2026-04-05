@@ -29,7 +29,7 @@
 		activeWordId: number | null;
 		isPlaying: boolean;
 		onToggleGroup: (ids: number[]) => void;
-		onSeek: (seconds: number) => void;
+		onSeek: (ms: number) => void;
 	} = $props();
 
 	// ── Cut type palette ──────────────────────────────────────────────────────
@@ -72,7 +72,7 @@
 	});
 
 	// ── Stats ─────────────────────────────────────────────────────────────────
-	const totalCutSecs = $derived(
+	const totalCutMs = $derived(
 		words
 			.filter(w => w.cut !== null && !w.keep)
 			.reduce((sum, w) => sum + (w.end - w.start), 0)
@@ -110,8 +110,10 @@
 
 	function chipText(chip: ChipToken): string {
 		if (chip.cutType === 'pause') {
-			const dur = chip.words.reduce((s, w) => s + (w.end - w.start), 0).toFixed(1);
-			return `[${dur}s pause]`;
+			const durMs = Math.round(
+				chip.words.reduce((s, w) => s + (w.end - w.start), 0)
+			);
+			return `[${durMs} ms pause]`;
 		}
 		return chip.words.map(w => w.text).join(' ');
 	}
@@ -163,7 +165,7 @@
 		<span
 			class="text-[11px] font-mono tabular-nums"
 			style="color:#666;font-family:'DM Mono',monospace;"
-		>−{totalCutSecs.toFixed(1)}s removed</span>
+		>−{(totalCutMs / 1000).toFixed(1)}s removed</span>
 	</div>
 
 	<!-- ── Prose ──────────────────────────────────────────────────────────── -->
